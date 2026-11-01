@@ -1,0 +1,12 @@
+package com.laicamist.proyecto_automatas
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class SharedLogicCommonTest {
+
+    @Test
+    fun example() {
+        assertEquals(3, 1 + 2)
+    }
+}

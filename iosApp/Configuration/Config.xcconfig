@@ -1,0 +1,7 @@
+TEAM_ID=
+
+PRODUCT_NAME=Proyecto_Automatas
+PRODUCT_BUNDLE_IDENTIFIER=com.laicamist.proyecto_automatas.Proyecto_Automatas$(TEAM_ID)
+
+CURRENT_PROJECT_VERSION=1
+MARKETING_VERSION=1.0

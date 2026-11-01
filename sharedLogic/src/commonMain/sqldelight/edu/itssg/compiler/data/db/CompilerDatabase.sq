@@ -1,0 +1,92 @@
+CREATE TABLE IF NOT EXISTS CompilationSession (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    source_code TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    has_errors INTEGER NOT NULL DEFAULT 0 CHECK (has_errors IN (0, 1))
+);
+
+-- Tabla de Símbolos
+CREATE TABLE IF NOT EXISTS SymbolTableEntryEntity (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    symbol_index INTEGER,          -- 1 para ID1, 2 para ID2, ...
+    lexeme TEXT NOT NULL,
+    token_code TEXT NOT NULL,      -- Mnemónico de TokenCategory (ID, TD, VTE, ...)
+    data_type TEXT,                -- int, float, String, CLASS, PACKAGE, MÉTODO... (o el rol si no hay TD)
+    scope TEXT,                    -- GLOBAL, main, nombre del método o de la clase
+    line_number INTEGER NOT NULL,
+    column_number INTEGER NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES CompilationSession(id) ON DELETE CASCADE
+);
+
+-- Tabla de Errores (columna Tipo = ErrorPhaseType.displayName)
+CREATE TABLE IF NOT EXISTS ErrorTableEntryEntity (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    error_type TEXT NOT NULL CHECK (error_type IN ('Léxico', 'Sintáctico', 'Semántico')),
+    lexeme TEXT NOT NULL,
+    line_number INTEGER NOT NULL,
+    column_number INTEGER NOT NULL,
+    justification TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES CompilationSession(id) ON DELETE CASCADE
+);
+
+-- Código Intermedio original (is_optimized = 0) y optimizado (is_optimized = 1).
+-- representation_kind guarda IrFormatKind.name: 'TRIPLE', 'QUADRUPLE' o 'THREE_ADDRESS'.
+CREATE TABLE IF NOT EXISTS IntermediateCodeEntity (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    representation_kind TEXT NOT NULL CHECK (representation_kind IN ('TRIPLE', 'QUADRUPLE', 'THREE_ADDRESS')),
+    is_optimized INTEGER NOT NULL DEFAULT 0 CHECK (is_optimized IN (0, 1)),
+    step_label TEXT NOT NULL,      -- '1', '2', ... o 'T1', 'ID2 = T3', 'ID4 RTN T1'
+    val1 TEXT NOT NULL,
+    operator TEXT NOT NULL,
+    val2 TEXT NOT NULL,
+    result_value TEXT,             -- resultado del cuádruplo o anotación/nota de liberación
+    FOREIGN KEY (session_id) REFERENCES CompilationSession(id) ON DELETE CASCADE
+);
+
+-- Índices: las consultas filtran por session_id y el borrado en cascada busca por esa columna.
+CREATE INDEX IF NOT EXISTS idx_symbol_session ON SymbolTableEntryEntity(session_id);
+CREATE INDEX IF NOT EXISTS idx_error_session ON ErrorTableEntryEntity(session_id);
+CREATE INDEX IF NOT EXISTS idx_ir_session_kind ON IntermediateCodeEntity(session_id, representation_kind, is_optimized);
+
+-- ============================ Consultas parametrizadas ============================
+
+insertSession:
+INSERT INTO CompilationSession(title, source_code, created_at, has_errors)
+VALUES (?, ?, ?, ?);
+
+-- Debe ejecutarse dentro de la misma transacción que insertSession (misma conexión).
+lastInsertedSessionId:
+SELECT last_insert_rowid();
+
+selectAllSessions:
+SELECT * FROM CompilationSession ORDER BY created_at DESC, id DESC;
+
+insertSymbolEntry:
+INSERT INTO SymbolTableEntryEntity(session_id, symbol_index, lexeme, token_code, data_type, scope, line_number, column_number)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectSymbolsBySession:
+SELECT * FROM SymbolTableEntryEntity WHERE session_id = ? ORDER BY id ASC;
+
+insertErrorEntry:
+INSERT INTO ErrorTableEntryEntity(session_id, error_type, lexeme, line_number, column_number, justification)
+VALUES (?, ?, ?, ?, ?, ?);
+
+selectErrorsBySession:
+SELECT * FROM ErrorTableEntryEntity WHERE session_id = ? ORDER BY id ASC;
+
+insertIntermediateCode:
+INSERT INTO IntermediateCodeEntity(session_id, representation_kind, is_optimized, step_label, val1, operator, val2, result_value)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectIntermediateCodeBySession:
+SELECT * FROM IntermediateCodeEntity
+WHERE session_id = ? AND representation_kind = ? AND is_optimized = ?
+ORDER BY id ASC;
+
+deleteSessionById:
+DELETE FROM CompilationSession WHERE id = ?;
