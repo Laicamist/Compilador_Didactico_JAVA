@@ -346,12 +346,13 @@ class SemanticAnalyzer(
                     s.init?.let { checkExpr(it, scope) }
                     return
                 }
-                val info = s.init?.let { checkExpr(it, scope) }
+                val init = s.init
+                val info = if (init != null) checkExpr(init, scope) else null
                 val b = declare(s.name, SymbolRole.VARIABLE, typeName, type, scope.label)
-                b.localInit = s.init
+                b.localInit = init
                 scope.names[s.name.lexeme] = b
-                if (info != null && s.init != null) {
-                    checkAssignment(s.name, typeName, type, b.className, info, s.init)
+                if (init != null && info != null) {
+                    checkAssignment(s.name, typeName, type, b.className, info, init)
                     scope.initialized += b
                 }
             }

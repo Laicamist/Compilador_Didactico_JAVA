@@ -143,7 +143,7 @@ class OptimizationAndRobustnessTest {
         repeat(300) {
             val sb = StringBuilder(base)
             repeat(1 + rnd.nextInt(6)) {
-                if (rnd.nextBoolean() && sb.isNotEmpty()) sb.deleteCharAt(rnd.nextInt(sb.length))
+                if (rnd.nextBoolean() && sb.isNotEmpty()) sb.deleteAt(rnd.nextInt(sb.length))
                 else sb.insert(rnd.nextInt(sb.length + 1), alphabet[rnd.nextInt(alphabet.length)])
             }
             compiler.compileSynchronously(sb.toString()) // no debe lanzar
