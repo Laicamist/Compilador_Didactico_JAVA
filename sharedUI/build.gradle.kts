@@ -38,6 +38,8 @@ kotlin {
         }
         commonMain.dependencies {
             api(project(":sharedLogic"))
+            // Los ViewModels exponen StateFlow/Flow en su API pública.
+            api(libs.kotlinx.coroutines.core)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)
