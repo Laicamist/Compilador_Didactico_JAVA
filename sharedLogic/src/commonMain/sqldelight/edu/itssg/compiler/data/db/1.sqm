@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS AppSetting (
+    setting_key TEXT NOT NULL PRIMARY KEY,
+    setting_value TEXT NOT NULL
+);

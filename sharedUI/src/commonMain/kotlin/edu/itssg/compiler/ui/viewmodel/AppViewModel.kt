@@ -13,6 +13,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -50,9 +51,14 @@ data class HomeDemoState(
     val failure: String? = null
 )
 
+/**
+ * @property settingsLoaded `false` mientras se leen los ajustes guardados; la UI puede esperar a que sea `true`
+ *   para no mostrar un instante el tema por defecto.
+ */
 data class AppUiState(
     val backStack: List<AppScreen> = listOf(AppScreen.HOME),
     val settings: AppSettings = AppSettings(),
+    val settingsLoaded: Boolean = false,
     val openHelpTopic: HelpTopic? = null,
     val tourStep: TourStep? = null,
     val demo: HomeDemoState = HomeDemoState(),
@@ -73,21 +79,33 @@ class AppViewModel(
 ) : ViewModel() {
 
     private val state = MutableStateFlow(
-        AppUiState(settings = settingsStore.settings.value, securityConfig = securityConfig)
+        AppUiState(
+            settings = settingsStore.settings.value,
+            settingsLoaded = settingsStore.isLoaded.value,
+            securityConfig = securityConfig
+        )
     )
     val uiState: StateFlow<AppUiState> = state.asStateFlow()
 
     init {
-        if (!settingsStore.settings.value.tourCompleted) {
-            state.update { it.copy(tourStep = TourStep.entries.first()) }
-        }
         viewModelScope.launch {
             settingsStore.settings.collect { settings -> state.update { it.copy(settings = settings) } }
+        }
+        viewModelScope.launch {
+            // El tour se decide con los ajustes ya leídos de la base, no con los valores por defecto.
+            settingsStore.isLoaded.first { it }
+            val showTour = !settingsStore.settings.value.tourCompleted
+            state.update {
+                it.copy(
+                    settingsLoaded = true,
+                    tourStep = if (showTour) it.tourStep ?: TourStep.entries.first() else it.tourStep
+                )
+            }
         }
         viewModelScope.launch { compileDemo() }
     }
 
-    //Navegación
+    // ------------------------------------------------------------------ Navegación
 
     /** Ir a [screen]. Volver a una pantalla que ya está en la pila regresa a ella; Inicio limpia la pila. */
     fun navigateTo(screen: AppScreen) {
@@ -110,7 +128,7 @@ class AppViewModel(
         return true
     }
 
-    //Hojas de ayuda
+    // ------------------------------------------------------------------ Hojas de ayuda
 
     fun openHelp(topic: HelpTopic) = state.update { it.copy(openHelpTopic = topic) }
 
@@ -128,7 +146,7 @@ class AppViewModel(
         }
     }
 
-    //Tour de bienvenida
+    // ------------------------------------------------------------------ Tour de bienvenida
 
     fun nextTourStep() {
         val step = state.value.tourStep ?: return
@@ -148,7 +166,7 @@ class AppViewModel(
         state.update { it.copy(backStack = listOf(AppScreen.HOME), tourStep = TourStep.entries.first()) }
     }
 
-    //Ajustes
+    // ------------------------------------------------------------------ Ajustes
 
     fun setThemeMode(mode: ThemeMode) = settingsStore.update { it.copy(themeMode = mode) }
 
@@ -160,7 +178,7 @@ class AppViewModel(
 
     fun decreaseEditorFontSize() = settingsStore.update { it.copy(editorFontSizeSp = it.editorFontSizeSp - 1) }
 
-    //Ejemplo del Inicio
+    // ------------------------------------------------------------------ Ejemplo del Inicio
 
     fun retryDemo() {
         if (state.value.demo.isLoading) return

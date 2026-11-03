@@ -1,6 +1,5 @@
 package edu.itssg.compiler.data.db
 
-import app.cash.sqldelight.db.SqlDriver
 import edu.itssg.compiler.core.CompilationReport
 import edu.itssg.compiler.core.ir.IntermediateCodeBundle
 import edu.itssg.compiler.core.ir.IrFormatKind
@@ -14,19 +13,24 @@ import kotlinx.coroutines.withContext
  *
  * Seguridad y rendimiento:
  * - Cero concatenación de SQL: todas las consultas son las precompiladas de `CompilerDatabase.sq`.
- * - La base se abre de forma perezosa en el primer uso, que siempre ocurre dentro de [dispatcher]:
- *   construir el repositorio desde la UI no hace E/S de disco en el hilo principal.
+ * - La base se abre de forma perezosa ([CompilerDatabaseProvider]) en el primer uso, que siempre ocurre
+ *   dentro de [dispatcher]: construir el repositorio desde la UI no hace E/S de disco en el hilo principal.
  * - Cada guardado es una transacción atómica: o se guarda la sesión completa o nada.
  *
- * @param dispatcher Despachador para la E/S de base de datos. En Android/Desktop conviene
- *   pasar `Dispatchers.IO` desde el código de plataforma; por defecto `Dispatchers.Default`.
+ * @param provider Conexión compartida con [AppSettingsRepository].
+ * @param dispatcher Despachador para la E/S de base de datos.
  */
 class CompilerSessionRepository(
-    driverFactory: DatabaseDriverFactory,
+    private val provider: CompilerDatabaseProvider,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
-    private val driver: SqlDriver by lazy { driverFactory.createDriver() }
-    private val database: CompilerDatabase by lazy { CompilerDatabase(driver) }
+    /** Repositorio con su propia conexión (pruebas o uso aislado). */
+    constructor(
+        driverFactory: DatabaseDriverFactory,
+        dispatcher: CoroutineDispatcher = Dispatchers.Default
+    ) : this(CompilerDatabaseProvider(driverFactory), dispatcher)
+
+    private val database: CompilerDatabase get() = provider.database
     private val queries: CompilerDatabaseQueries get() = database.compilerDatabaseQueries
 
     /**
@@ -116,9 +120,12 @@ class CompilerSessionRepository(
         queries.deleteSessionById(sessionId).value > 0L
     }
 
-    /** Cierra el driver (al salir de la app Desktop o en pruebas). */
+    /**
+     * Cierra la conexión (al salir de la app Desktop o en pruebas). Si el [provider] se comparte,
+     * también deja de funcionar para los demás repositorios.
+     */
     fun close() {
-        driver.close()
+        provider.close()
     }
 
     private fun persistIrBundle(

@@ -2,9 +2,11 @@ package edu.itssg.compiler.ui.di
 
 import edu.itssg.compiler.core.JavaDidacticCompiler
 import edu.itssg.compiler.core.security.CompilerSecurityConfig
+import edu.itssg.compiler.data.db.AppSettingsRepository
+import edu.itssg.compiler.data.db.CompilerDatabaseProvider
 import edu.itssg.compiler.data.db.CompilerSessionRepository
 import edu.itssg.compiler.data.db.DatabaseDriverFactory
-import edu.itssg.compiler.ui.data.InMemorySettingsStore
+import edu.itssg.compiler.ui.data.PersistentSettingsStore
 import edu.itssg.compiler.ui.data.RepositorySessionStore
 import edu.itssg.compiler.ui.data.SessionStore
 import edu.itssg.compiler.ui.data.SettingsStore
@@ -12,13 +14,18 @@ import edu.itssg.compiler.ui.viewmodel.AppViewModel
 import edu.itssg.compiler.ui.viewmodel.CompilerViewModel
 import edu.itssg.compiler.ui.viewmodel.HistoryViewModel
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 
 /**
  * Dependencias de la app (inyección manual). Se crea UNA sola vez en el punto de entrada de cada plataforma
  * y se pasa a `App(container)`.
+ *
+ * El historial y los ajustes comparten una sola conexión a la base ([CompilerDatabaseProvider]).
  *
  * @param databaseDispatcher Despachador para la base de datos; desde Desktop y Android pasar `Dispatchers.IO`.
  * @param nowMillis Hora actual en milisegundos; se puede reemplazar en pruebas.
@@ -29,15 +36,22 @@ class AppContainer(
     databaseDispatcher: CoroutineDispatcher = Dispatchers.Default,
     val nowMillis: () -> Long = ::currentEpochMillis
 ) {
-    /** Un compilador nuevo por compilación*/
+    /** Un compilador nuevo por compilación (Parser y SemanticAnalyzer no son seguros para uso concurrente). */
     val compilerFactory: () -> JavaDidacticCompiler = { JavaDidacticCompiler(securityConfig) }
 
+    /** Trabajo de fondo que vive lo mismo que la app (lectura y guardado de ajustes). */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     /** La base se abre la primera vez que se usa, ya dentro de [databaseDispatcher]. */
-    private val repository = lazy { CompilerSessionRepository(databaseDriverFactory, databaseDispatcher) }
+    private val databaseProvider = CompilerDatabaseProvider(databaseDriverFactory)
 
-    val sessionStore: SessionStore by lazy { RepositorySessionStore(repository.value) }
+    val sessionStore: SessionStore by lazy {
+        RepositorySessionStore(CompilerSessionRepository(databaseProvider, databaseDispatcher))
+    }
 
-    val settingsStore: SettingsStore by lazy { InMemorySettingsStore() }
+    val settingsStore: SettingsStore by lazy {
+        PersistentSettingsStore(AppSettingsRepository(databaseProvider, databaseDispatcher), appScope)
+    }
 
     fun createAppViewModel(): AppViewModel =
         AppViewModel(compilerFactory, settingsStore, securityConfig)
@@ -48,9 +62,10 @@ class AppContainer(
     fun createHistoryViewModel(): HistoryViewModel =
         HistoryViewModel(sessionStore)
 
-    /** Cierra la base de datos si llegó a abrirse (Desktop, al cerrar la ventana). */
+    /** Detiene el trabajo de fondo y cierra la base de datos si llegó a abrirse (Desktop, al cerrar la ventana). */
     fun close() {
-        if (repository.isInitialized()) repository.value.close()
+        appScope.cancel()
+        databaseProvider.close()
     }
 }
 
