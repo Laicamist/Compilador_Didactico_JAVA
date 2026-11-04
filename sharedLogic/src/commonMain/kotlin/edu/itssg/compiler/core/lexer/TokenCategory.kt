@@ -1,9 +1,6 @@
 package edu.itssg.compiler.core.lexer
 
 /**
- * Catálogo estricto e inmutable de todos los Tokens definidos en la especificación léxica (LstTokens.pdf)
- * y la Gramática Libre de Contexto (GLC v7).
- *
  * @property mnemonic Código exacto del token (ej. "PCK", "MA", "ID", "VTE").
  * @property description Descripción académica de la categoría léxica.
  */
@@ -82,20 +79,11 @@ enum class TokenCategory(
     // 5. Tokens de Control Interno
     EOF(mnemonic = "EOF", description = "Fin de archivo fuente");
 
-    /**
-     * En las diapositivas de la Tabla de Símbolos el token de String aparece ocasionalmente como VST
-     * y en la tabla de tokens/GLC v7 como VTS. Este método provee compatibilidad para ambas vistas.
-     */
     fun displayMnemonic(useSlideAliasForString: Boolean = false): String {
         return if (this == VTS && useSlideAliasForString) "VST" else mnemonic
     }
 
     companion object {
-        /**
-         * Lexema del método principal. LstTokens.pdf indica que `main` es `PMAIN` "solo cuando es el método
-         * principal de Java"; por eso NO está en [KEYWORDS]: el Lexer decide por contexto (`static void main`).
-         * En cualquier otro lugar (`int main = 3;`) es un `ID` normal.
-         */
         const val MAIN_LEXEME: String = "main"
 
         /** Mapa de resolución O(1) para palabras reservadas exactas de Java según la tabla oficial. */
@@ -140,8 +128,7 @@ enum class TokenCategory(
             "for" to PRF,
             "implements" to IMPL,
             "final" to TDD,
-            "deafult" to DF, // Fidelidad exacta a la tabla de referencia ("deafult")
-            "default" to DF, // Soporte estándar adicional
+            "default" to DF,
             "null" to _NU,
             "static" to ST,
             "String" to STR,

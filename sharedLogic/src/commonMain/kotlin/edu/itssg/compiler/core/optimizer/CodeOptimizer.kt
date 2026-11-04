@@ -51,7 +51,7 @@ data class OptimizationResult(
 )
 
 /**
- * Optimizador local de Código Intermedio (Unidad 3).
+ * Optimizador local de Código Intermedio.
  *
  * Recorre los cuádruplos de arriba hacia abajo, como la tabla del ejemplo `Facil`. A cada cuádruplo primero se le
  * aplican los cambios que dejaron las optimizaciones anteriores (su "cuádruplo modificado") y después la primera
@@ -120,7 +120,7 @@ class CodeOptimizer(
             }
         }
 
-        // ---------------------------------------------------- Código Muerto (CM / CMD)
+        //Código Muerto (CM / CMD)
         val liveNow = liveSteps(current.values.filter { it.step !in eliminated })
         val liveOriginally = liveSteps(original)
         for (op in original) {
@@ -135,7 +135,7 @@ class CodeOptimizer(
             )
         }
 
-        // ---------------------------------------------------- Tabla anotada y bitácora
+        //Tabla anotada y bitácora
         val firstConsumerOf = HashMap<Int, Int>()
         for (op in original) for (operand in op.operands) {
             if (operand is IrOperand.StepRef && operand.step < op.step) firstConsumerOf.getOrPut(operand.step) { op.step }
@@ -172,7 +172,7 @@ class CodeOptimizer(
             }
         }
 
-        // ---------------------------------------------------- CI optimizado (renumerado)
+        //CI optimizado (renumerado)
         val survivors = original.map { current.getValue(it.step) }.filter { it.step !in eliminated }
         val newNumber = HashMap<Int, Int>()
         survivors.forEachIndexed { i, op -> newNumber[op.step] = i + 1 }

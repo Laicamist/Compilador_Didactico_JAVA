@@ -24,16 +24,14 @@ data class ParserResult(
 )
 
 /**
- * Analizador Sintáctico descendente recursivo sobre la **GLC v7 by NCQM** (ver [GlcV7] para las producciones,
- * las erratas interpretadas y las extensiones que exigen los ejemplos de clase).
- *
+ * Analizador Sintáctico descendente recursivo
  * - Cada nodo No-Terminal del árbol lleva el nombre exacto de la regla (`JAVA`, `CLASE`, `D_GLOB`, `EXP`, `EXPC`...).
  * - Las reglas recursivas (`CONTENT`, `CUERPO`, `IMPORTS`, `ARGS`, `PARAMS`) se muestran "aplanadas": un nodo con
  *   todos sus elementos en orden, para que el árbol sea legible.
  * - Expresiones: `EXP → EXPC → EXP OP EXP` respetando la jerarquía de operadores de la U1/U2
- *   (nivel 1 `+ -`, nivel 2 `* /`, nivel 3 `.`, los paréntesis suben un nivel) con asociatividad izquierda.
+ *   (nivel 1 `+ -`, nivel 2 `* /`, nivel 3 `.`, los paréntesis suben un nivel)
  *
- * ## Consideraciones de la GLC v7 que se verifican
+ * ## Consideraciones de la GLC v7
  * - No acepta herencia ni implementación (`extends`, `implements`).
  * - Solo importación simple (`import a.B;`).
  * - No hay regla para crear arreglos (`int[] a`, `new int[3]`, `args[0]`).
@@ -99,9 +97,7 @@ class Parser(
         )
     }
 
-    // =====================================================================================
     // JAVA ::= DPACKAGE IMPORTS CLASE
-    // =====================================================================================
 
     private fun parseJava(): Pair<SyntaxTreeNode.NonTerminal, ProgramAst> {
         var packageToken: Token? = null
@@ -130,7 +126,7 @@ class Parser(
         return node to ProgramAst(packageToken, imports, classDecl)
     }
 
-    /** `DPACKAGE ::= PCK ID FI` (opcional: los ejemplos de clase sin `package` son válidos). */
+    /** `DPACKAGE ::= PCK ID FI`*/
     private fun parseDPackage(): Pair<SyntaxTreeNode.NonTerminal, Token?> {
         var packageId: Token? = null
         val node = rule("DPACKAGE") {
@@ -147,7 +143,6 @@ class Parser(
                     }
                     children += expectFi("DPACKAGE")
                 }
-                // Ej. U1 "pakage lya;": el ID pakage rompe la regla DPACKAGE porque se espera un PCK
                 check(ID) && peekCat(1) == ID && peekCat(2) == FI -> unit {
                     syntaxError("DPACKAGE", "PCK", cursor.peek())
                     children += error("PCK", "DPACKAGE", cursor.peek().span)
@@ -196,9 +191,7 @@ class Parser(
         return node to imports
     }
 
-    // =====================================================================================
     // CLASE ::= MA CL ID LLA CONTENT LLC
-    // =====================================================================================
 
     private fun parseClase(): Pair<SyntaxTreeNode.NonTerminal, ClassDecl?> {
         var classDecl: ClassDecl? = null
@@ -222,7 +215,6 @@ class Parser(
                     consideration("CLASE", "no se acepta herencia ni implementación (${cursor.peek().lexeme})", cursor.peek())
                     while (!cursor.isAtEnd && !check(LLA) && !check(FI) && !check(LLC)) cursor.advance()
                 }
-                // Ej. U1 "public class End Fin {": se esperaba un LLA y se encuentra un ID
                 children += expectOrSkip(LLA, "CLASE", maxSkip = 3)
             }
 
@@ -323,10 +315,7 @@ class Parser(
             // Ej. U1 "int private c=9;": empieza como D_GLOB y falla al esperar el ID
             (i > 0 && peekCat(i) == ID)
     }
-
-    // =====================================================================================
     // D_GLOB ::= MAO TY ID FI | MAO TY ID ODA EXP FI | OBJ
-    // =====================================================================================
 
     private fun parseDGlob(): Pair<SyntaxTreeNode.NonTerminal, FieldDecl?> {
         var field: FieldDecl? = null
@@ -417,9 +406,7 @@ class Parser(
         return node to obj
     }
 
-    // =====================================================================================
     // MAIN y METODO
-    // =====================================================================================
 
     /** `MAIN ::= MA ST TM PMAIN PA STR COA COC ID PC LLA CUERPO LLC`. */
     private fun parseMain(): Pair<SyntaxTreeNode.NonTerminal, MainDecl> {
@@ -587,10 +574,8 @@ class Parser(
         return nodes to ReturnStmt(kw, value, SourceSpan(kw.span.start, cursor.previous().span.end))
     }
 
-    // =====================================================================================
     // CUERPO ::= INST CUERPO | ε
     // INST ::= DEC | STAT_B | ASIG | ACC | OBJ
-    // =====================================================================================
 
     private enum class CuerpoContext { MAIN, METHOD, BLOCK, CASE }
 
@@ -789,7 +774,7 @@ class Parser(
         return node to stmt
     }
 
-    // ------------------------------------------------------------------- Estructuras de control
+    //Estructuras de control
 
     private fun parseControl(): Pair<SyntaxTreeNode.NonTerminal, Stmt?> = when (cursor.peek().category) {
         PRIF -> parseIfEl()
@@ -1033,9 +1018,7 @@ class Parser(
         return node to has
     }
 
-    // =====================================================================================
     // EXPRESIONES: EXP ::= EXPC | VAL | ACC ; EXPC ::= EXP OP EXP | PA EXP OP EXP PC | EXPU
-    // =====================================================================================
 
     /** Jerarquía (mayor número = mayor prioridad). Nivel 1 `+ -`, nivel 2 `* /` de las láminas, más lógicos/relacionales. */
     private fun precedenceOf(token: Token): Int = when (token.category) {
@@ -1315,10 +1298,7 @@ class Parser(
         }
         return node to tok
     }
-
-    // =====================================================================================
     // Consideraciones de la GLC v7
-    // =====================================================================================
 
     private fun skipArrayBrackets(rule: String) {
         if (check(COA)) {
@@ -1335,9 +1315,7 @@ class Parser(
         }
     }
 
-    // =====================================================================================
     // Utilidades de construcción y recuperación (Modo Pánico)
-    // =====================================================================================
 
     private fun peekCat(offset: Int): TokenCategory = cursor.peekAhead(offset).category
 

@@ -68,7 +68,7 @@ object AcademicErrorTemplates {
         return if (production != null) "$head\nRompe la regla gramatical $production" else head
     }
 
-    // --------------------------------------------------------------- Semánticos
+    //Semánticos
 
     fun undeclaredIdentifier(lexeme: String): String =
         "El ID $lexeme no ha sido declarado previamente, por lo tanto no tiene un TD ni un valor que se pueda usar"

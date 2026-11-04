@@ -12,7 +12,7 @@ import edu.itssg.compiler.core.semantic.EvaluatedValue.SymbolicVal
 import edu.itssg.compiler.core.semantic.EvaluatedValue.UnknownVal
 
 /**
- * Evaluación de valores con las reglas de Java usadas en los ejemplos de clase:
+ * Evaluación de valores con las reglas de Java:
  * - `'@'` vale 64 y `'F'` vale 70 al operar (char → int).
  * - División entera: `15/4` = 3, `99/10` = 9.
  * - Promoción: `45.0 + 256.0f` = `301.0` (double), `1 + 0.0f` = `1.0f`.

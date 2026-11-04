@@ -5,7 +5,7 @@ import edu.itssg.compiler.core.semantic.SemanticDataType
 import edu.itssg.compiler.core.semantic.SemanticNodeKind
 
 /**
- * Generador de Códigos Intermedios (U2): "representación secuencial de las operaciones/acciones del árbol abstracto".
+ * Generador de Códigos Intermedios: "representación secuencial de las operaciones/acciones del árbol abstracto".
  *
  * - **Triplos** `n (val1, ope, val2)` y **Cuádruplos** `n (val1, ope, val2, res)`: un renglón por cada acción del
  *   árbol, en el orden de ejecución que el Analizador Semántico ya numeró (abajo → arriba, izquierda → derecha).
@@ -90,9 +90,7 @@ class IntermediateCodeGenerator {
         )
     }
 
-    // =====================================================================================
     // Tres Direcciones
-    // =====================================================================================
 
     /** Nivel de flexibilidad al asignar el último temporal libre (ver [buildThreeAddress]). */
     private enum class Policy { STRICT, RELAXED, FORCE }

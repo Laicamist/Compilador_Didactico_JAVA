@@ -63,7 +63,7 @@ data class SemanticResult(
  * Se registran solo los elementos creados por el programador (paquete, clase, atributos, métodos, parámetros,
  * variables y objetos), numerados por orden de aparición (`ID1`, `ID2`...). Los nombres de Java (`System`, `out`,
  * `println`, `Math`, `random`, `length`) no se numeran. Un nombre que se vuelve a declarar en otro ámbito recibe un
- * ID nuevo (ejemplo `Viernes`: `ID3 a` método y `ID7 a` parámetro de main).
+ * ID nuevo.
  *
  * ## Árbol abstracto-semántico (U1)
  * 1. La raíz es la clase principal (`IDn PMAIN`) y se conecta únicamente con el método principal.
@@ -76,7 +76,7 @@ data class SemanticResult(
  *    es [SemanticAstNode.evaluationStepNumber] y es el número de renglón de los códigos intermedios.
  *
  * Las estructuras de control (`if`, `while`, `do`, `for`, `switch`) se validan semánticamente, pero no forman parte
- * del árbol abstracto ni del código intermedio: las láminas no definen su representación.
+ * del árbol abstracto ni del código intermedio: la teoria de la clase de automatas no definio su representación.
  */
 class SemanticAnalyzer(
     private val config: CompilerSecurityConfig = CompilerSecurityConfig()
@@ -186,10 +186,7 @@ class SemanticAnalyzer(
         undeclared.clear()
         undeclaredTokens.clear()
     }
-
-    // =====================================================================================
     // 1. Declaraciones
-    // =====================================================================================
 
     private fun declare(
         token: Token,
@@ -247,9 +244,7 @@ class SemanticAnalyzer(
         }
     }
 
-    // =====================================================================================
     // 2. Validaciones semánticas
-    // =====================================================================================
 
     private fun checkFieldInitializers(clazz: ClassDecl) {
         val classScope = Scope(GLOBAL, null)
@@ -761,9 +756,7 @@ class SemanticAnalyzer(
         }
     }
 
-    // =====================================================================================
     // 3. Numeración definitiva de la Tabla de Símbolos
-    // =====================================================================================
 
     private fun assignFinalIds(symbolTable: SymbolTable): Map<Int, Int> {
         data class Slot(val offset: Int, val binding: Binding?, val undeclaredName: String?, val token: Token)
@@ -806,10 +799,7 @@ class SemanticAnalyzer(
         undeclaredTokens.forEach { (offset, name) -> undeclaredIds[name]?.let { result[offset] = it } }
         return result
     }
-
-    // =====================================================================================
     // 4. Árbol Abstracto-Semántico
-    // =====================================================================================
 
     /** Contexto de evaluación perezosa de un método invocado (parámetros con su argumento, locales con su valor). */
     private class Frame(

@@ -32,7 +32,7 @@ enum class SemanticDataType(
 
     val isIntegral: Boolean get() = this == BYTE || this == SHORT || this == CHAR || this == INT || this == LONG
 
-    /** Valor por defecto de un atributo sin inicializar (ej. `float numero;` → `0.0f`, ejemplo `Nueva`). */
+    /** Valor por defecto de un atributo sin inicializar. */
     fun defaultValue(): EvaluatedValue = when (this) {
         BYTE, SHORT, INT, LONG -> EvaluatedValue.IntVal(0, this)
         CHAR -> EvaluatedValue.CharVal(0)
@@ -206,7 +206,6 @@ sealed interface EvaluatedValue {
 
     /**
      * Valor desconocido en compilación que depende de `Math.random()`: forma lineal `constant + coefficient·X`.
-     * Se muestra como en las láminas de la U2/U3: `X.0`, `15X.0`, `5X.0`, `10+X.0`, `57.3248X`.
      */
     data class SymbolicVal(
         val coefficient: Double = 1.0,
@@ -248,7 +247,6 @@ sealed interface EvaluatedValue {
 
         private fun roundTo4(number: Double): Double = round(number * 10000.0) / 10000.0
 
-        /** `4.0`, `57.3248`: máximo 4 decimales para evitar ruido de coma flotante (`109.60000000000001`). */
         fun formatDecimal(number: Double): String {
             if (number.isNaN()) return "NaN"
             if (number.isInfinite()) return if (number > 0) "Infinity" else "-Infinity"

@@ -1,8 +1,7 @@
 package edu.itssg.compiler.core.parser
 
 /**
- * Producciones de la **GLC v7 by NCQM** tal como aparecen en el documento de la materia, usadas para citar
- * la regla que se rompe en la Tabla de Errores ("Rompe la regla gramatical DPACKAGE::= PCK ID FI").
+ * Producciones de la GLC v7
  *
  * ## Erratas del documento que se interpretan
  * - `L_CASES::=PRCA L_CASES|;` se lee `L_CASES::=CASE L_CASES|ε` (CASE sí está definida).
@@ -10,8 +9,6 @@ package edu.itssg.compiler.core.parser
  * - `EXPBOO` ("expresión booleana") se analiza como `EXP` y el semántico verifica que su TD sea boolean.
  *
  * ## Extensiones necesarias para los ejemplos de clase
- * Los ejemplos de código intermedio de la U2/U3 usan construcciones que la GLC v7 no deriva. Se aceptan
- * y se documentan como extensiones (marcadas con `+` en [EXTENSIONS]):
  * - `CLA::= ... | NW ID PA ARGS PC` → `new Uno().cuatro('@')`, `new Nueva().total`.
  * - `CLA::= ... | PA EXP PC` → `("1"+c).length()` (ejemplo `Lunes`).
  * - `EXP::= ... | PA TD PC EXP` (conversión) → `(char)(b + ...)`, `(float)(dos+tres*dos)`, `(int)(...)`.

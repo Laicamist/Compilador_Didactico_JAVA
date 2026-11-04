@@ -5,7 +5,7 @@ import edu.itssg.compiler.core.lexer.TokenCategory
 import edu.itssg.compiler.core.security.SourcePosition
 
 /**
- * Rol semántico del identificador, según los ejemplos de clase (ej. ID1 asesorías -> PACKAGE,
+ * Rol semántico del identificador,
  * ID2 Viernes -> CLASS, ID3 a -> MÉTODO STRING, ID4 x -> INT).
  */
 enum class SymbolRole(val label: String) {
@@ -45,10 +45,6 @@ data class SymbolEntry(
 
 /**
  * Fila de visualización para la Tabla Léxica (columnas: `ID` | `LEXEMA` | `TOKEN`),
- * replicando exactamente el formato de las diapositivas de la Fuente 4:
- * - Primera aparición de un identificador: Columna ID = `1`, Columna LEXEMA = `B`, Columna TOKEN = `ID`.
- * - Apariciones posteriores del mismo identificador: Columna ID = `""`, Columna LEXEMA = `ID1`, Columna TOKEN = `ID`.
- * - Palabras reservadas, operadores y literales: Columna ID = `""`, Columna LEXEMA = lexema original, Columna TOKEN = código del token.
  */
 data class LexicalTableRow(
     val idColumn: String,
@@ -60,7 +56,6 @@ data class LexicalTableRow(
 
 /**
  * Tabla de Símbolos inmutable / controlada para registrar identificadores numerados (`ID1`, `ID2`...)
- * y generar las vistas tabulares requeridas por el proyecto.
  */
 class SymbolTable {
     private val symbolsByName = LinkedHashMap<String, SymbolEntry>()
@@ -115,7 +110,6 @@ class SymbolTable {
     /**
      * Sustituye la numeración provisional del Analizador Léxico por la definitiva del Analizador Semántico
      * ("Escribe en TABLA DE SÍMBOLOS"): un ID por cada elemento creado por el programador, en orden de aparición,
-     * con un ID nuevo cuando un nombre se vuelve a declarar en otro ámbito (ej. `String a` local de `Lunes` = ID7).
      */
     fun replaceAllSymbols(entries: List<SymbolEntry>) {
         symbolsByName.clear()
@@ -134,7 +128,7 @@ class SymbolTable {
     fun getAllSymbols(): List<SymbolEntry> = symbolsById.values.toList()
 
     /**
-     * Construye la tabla secuencial (ID | LEXEMA | TOKEN) mostrada en la Fuente 4.
+     * Construye la tabla secuencial (ID | LEXEMA | TOKEN).
      */
     fun buildLexicalTableRows(
         tokens: List<Token>,

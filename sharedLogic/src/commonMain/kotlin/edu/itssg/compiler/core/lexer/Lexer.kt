@@ -10,11 +10,6 @@ import edu.itssg.compiler.core.security.SourcePosition
 import edu.itssg.compiler.core.security.SourceSpan
 import edu.itssg.compiler.core.symboltable.SymbolTable
 
-/**
- * Anomalía léxica detectada durante el escaneo, con la justificación de la Tabla de Errores (U1):
- * - "En Java no existe ningún TOKEN para el @, por lo tanto el símbolo no es válido para el lenguaje"
- * - "Con base en JAVA la cadena 9x no cumple con las características para ser un ID"
- */
 data class LexicalAnomaly(
     val lexeme: String,
     val justification: String,

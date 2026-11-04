@@ -12,9 +12,9 @@ enum class IrFormatKind(val displayName: String) {
 }
 
 /**
- * Etiquetas oficiales de optimización local (Unidad 3 — Optimización de Código).
+ * Etiquetas oficiales de optimización local.
  *
- * Códigos base según la tabla de la materia:
+ * Códigos base:
  * `SE` Simplificación de expresiones, `FO` Folding, `PC` Propagación de constantes,
  * `RS` Reducción de subexpresiones comunes, `CM` Código muerto.
  *
@@ -23,11 +23,6 @@ enum class IrFormatKind(val displayName: String) {
  * optimizable), se agrega una `D` al código: `SED`, `FOD`, `PCD`, `RSD`, `CMD`.
  * La variante derivada NO es una técnica distinta, por eso se modela con [codeFor] y no como
  * entradas extra de la enum.
- *
- * Ejemplos de la lámina:
- * - `1. (ID2, =, 3.14, 3.14) PC` → la propagación sustituye `[1]` por `3.14` en el paso 2.
- * - `1. (180, /, 3.14, 57.3) FOD` → el folding solo fue posible por el cambio que hizo `PC`.
- * - `3. (ID4, =, [2], 109.0) PCD 6` → `[2]` ya había sido reducido a `109` por `FO`/`SE`.
  */
 enum class OptimizationTag(val code: String, val description: String) {
     EXPRESSION_SIMPLIFICATION("SE", "Simplificación de expresiones"),
@@ -101,9 +96,6 @@ data class OptimizationMark(
 }
 
 /**
- * Instrucción de **Triplo**: `N. (val1, ope, val2)`
- * Ejemplo de referencia: `2. (1, +, [1])`
- *
  * @property isModified `true` si el registro fue cambiado por una optimización previa
  *   (base para decidir si una optimización posterior sobre él es derivada).
  */
@@ -123,9 +115,6 @@ data class TripleInstruction(
 }
 
 /**
- * Instrucción de **Cuádruplo**: `N. (val1, ope, val2, res)`
- * Ejemplo de referencia: `1. (ID2, =, 0.0f, 0.0f)` o `4. (33, +, 2, 35) FO 5 -> ELIMINAR`
- *
  * @property isModified `true` si el registro fue cambiado por una optimización previa
  *   (base para decidir si una optimización posterior sobre él es derivada).
  */
@@ -144,12 +133,6 @@ data class QuadrupleInstruction(
         return if (!annotation.isNullOrBlank()) "$base  $annotation" else base
     }
 }
-
-/**
- * Instrucción de **Tres Direcciones** con gestión de registros temporales `T1`, `T2`, `T3` (`1 <= n <= 3`).
- * Soporta tanto tuplas con temporal `Tn. (val1, ope, val2)` como asignaciones directas `ID2 = T3` o `ID4 RTN T1`
- * y anotaciones de liberación `--> P4 free T1` / `--> free all`.
- */
 data class ThreeAddressInstruction(
     val index: Int,
     val targetLabel: String, // Ej. "T1", "T2", "T3", o "ID2 = T3", "ID4 RTN T1"

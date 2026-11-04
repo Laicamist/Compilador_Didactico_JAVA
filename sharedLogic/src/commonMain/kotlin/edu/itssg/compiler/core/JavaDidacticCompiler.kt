@@ -152,11 +152,7 @@ class JavaDidacticCompiler(
         errors.sortedWith(compareBy<CompilerError>({ it.line }, { it.column }, { it.type.ordinal }))
             .mapIndexed { i, e -> e.copy(index = i + 1) }
 
-    /**
-     * Aplica a los tokens la numeración definitiva de la Tabla de Símbolos. Los identificadores de Java (`System`,
-     * `out`, `println`, `Math`, `length`...) quedan sin número; la columna ID muestra el número en la primera
-     * aparición de cada símbolo y las siguientes apariciones se muestran como `IDn`.
-     */
+
     private fun renumberTokens(tokens: List<Token>, finalIds: Map<Int, Int>): List<Token> {
         val seen = HashSet<Int>()
         return tokens.map { token ->

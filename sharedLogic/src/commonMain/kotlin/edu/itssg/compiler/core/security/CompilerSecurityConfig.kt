@@ -5,9 +5,6 @@ package edu.itssg.compiler.core.security
  * Protege contra Denegación de Servicio (DoS), agotamiento de memoria (OOM) en dispositivos móviles
  * y bucles infinitos durante las fases de análisis.
  *
- * Todo el motor usa un único paquete: `edu.itssg.compiler.core.security` (el paquete anterior
- * `...core.segurity` tenía un typo y ya no existe; cualquier import viejo debe actualizarse).
- *
  * @property maxSourceLength Longitud máxima del código fuente en caracteres (por defecto 1,000,000).
  * @property maxLexemeLength Longitud máxima de un lexema o literal de cadena (por defecto 4,096; si se reduce
  *   [maxSourceLength] por debajo de ese valor, el límite de lexema se ajusta solo para no invalidar la config).
