@@ -33,6 +33,8 @@ kotlin {
 
     sourceSets {
         androidMain.dependencies {
+            // Selector de archivos (Storage Access Framework) para "Abrir" en el editor.
+            implementation(libs.androidx.activity.compose)
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.uiTooling)
         }

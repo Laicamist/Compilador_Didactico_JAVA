@@ -50,7 +50,7 @@ import kotlinx.coroutines.withContext
  * - Compila fuera del hilo principal con [JavaDidacticCompiler.compileAsync].
  * - Paso a paso: compila una sola vez y revela las fases de una en una; el backend ejecuta el pipeline completo,
  *   así que cada paso muestra resultados reales, no simulados.
- * - Resaltado del editor: vuelve a tokenizar el código 150 ms después de la última tecla.
+ * - Resaltado del editor: vuelve a tokenizar el código 150 ms después de la última tecla (tokens y errores léxicos).
  *
  * @param compilerFactory Crea un compilador NUEVO por compilación: `Parser` y `SemanticAnalyzer` guardan estado
  *   interno, así que una misma instancia no se puede usar desde dos compilaciones a la vez.
@@ -80,12 +80,18 @@ class CompilerViewModel(
         viewModelScope.launch {
             sourceForHighlight.collectLatest { source ->
                 if (source.isEmpty()) {
-                    state.update { it.copy(highlightTokens = emptyList()) }
+                    state.update { it.copy(highlightTokens = emptyList(), highlightAnomalies = emptyList()) }
                     return@collectLatest
                 }
                 delay(HIGHLIGHT_DEBOUNCE_MS)
-                val tokens = withContext(Dispatchers.Default) { highlightLexer.tokenize(source).tokens }
-                state.update { if (it.sourceCode == source) it.copy(highlightTokens = tokens) else it }
+                val result = withContext(Dispatchers.Default) { highlightLexer.tokenize(source) }
+                state.update {
+                    if (it.sourceCode == source) {
+                        it.copy(highlightTokens = result.tokens, highlightAnomalies = result.lexicalAnomalies)
+                    } else {
+                        it
+                    }
+                }
             }
         }
     }
@@ -134,7 +140,7 @@ class CompilerViewModel(
         if (clean.isNotEmpty()) state.update { it.copy(sessionTitle = clean, isTitleCustom = true) }
     }
 
-    // ------------------------------------------------------------------ Compilación
+    //Compilación
 
     /** Compilar todo: ejecuta todas las fases y muestra todos los resultados. */
     fun compileAll() = launchCompilation(stepByStep = false)
@@ -338,7 +344,8 @@ class CompilerViewModel(
             sourceCode = source,
             lastSavedSource = if (alreadySaved) source else null,
             isErrorPanelExpanded = state.value.isErrorPanelExpanded,
-            irFormat = state.value.irFormat
+            irFormat = state.value.irFormat,
+            documentVersion = state.value.documentVersion + 1
         )
         sourceForHighlight.value = source
     }

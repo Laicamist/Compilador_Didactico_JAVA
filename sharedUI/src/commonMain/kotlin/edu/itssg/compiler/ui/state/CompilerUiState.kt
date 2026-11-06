@@ -4,6 +4,7 @@ import edu.itssg.compiler.core.CompilationReport
 import edu.itssg.compiler.core.error.CompilerError
 import edu.itssg.compiler.core.error.ErrorPhaseType
 import edu.itssg.compiler.core.ir.IrFormatKind
+import edu.itssg.compiler.core.lexer.LexicalAnomaly
 import edu.itssg.compiler.core.lexer.Token
 import edu.itssg.compiler.core.lexer.TokenCategory
 import edu.itssg.compiler.core.security.SourceSpan
@@ -81,16 +82,22 @@ const val UNTITLED_SESSION_TITLE: String = "Sin título"
  * Estado completo e inmutable del espacio de trabajo.
  *
  * @property highlightTokens Tokens del código actual para el resaltado del editor (se recalculan con cada cambio).
+ * @property highlightAnomalies Errores léxicos del código actual, calculados junto con [highlightTokens]; el editor
+ *   los subraya mientras se escribe, antes de compilar.
  * @property report Último resultado del compilador; corresponde a [compiledSource].
  * @property isTitleCustom `false` mientras el título se toma del nombre de la clase (se actualiza al compilar);
  *   `true` si viene de un archivo, del historial o el usuario lo cambió.
  * @property lastSavedSource Código de la última vez que se guardó en el historial.
+ * @property documentVersion Aumenta cada vez que se carga otro documento (Nuevo trabajo, Abrir, Historial). El
+ *   editor lo usa para reiniciar su texto, su cursor y su historial de Deshacer; mientras no cambie, el editor es
+ *   el dueño del texto y solo informa cada cambio con `onSourceChange`.
  */
 data class CompilerUiState(
     val sessionTitle: String = UNTITLED_SESSION_TITLE,
     val isTitleCustom: Boolean = false,
     val sourceCode: String = "",
     val highlightTokens: List<Token> = emptyList(),
+    val highlightAnomalies: List<LexicalAnomaly> = emptyList(),
     val isCompiling: Boolean = false,
     val report: CompilationReport? = null,
     val compiledSource: String? = null,
@@ -103,7 +110,8 @@ data class CompilerUiState(
     val isErrorPanelExpanded: Boolean = true,
     val focusRequest: EditorFocusRequest? = null,
     val isSaving: Boolean = false,
-    val lastSavedSource: String? = null
+    val lastSavedSource: String? = null,
+    val documentVersion: Int = 0
 ) {
     /** El código cambió después de compilar: los resultados en pantalla ya no corresponden al editor. */
     val isReportStale: Boolean
