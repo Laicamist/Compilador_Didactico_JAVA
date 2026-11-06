@@ -105,7 +105,7 @@ class AppViewModel(
         viewModelScope.launch { compileDemo() }
     }
 
-    // ------------------------------------------------------------------ Navegación
+    // Navegación
 
     /** Ir a [screen]. Volver a una pantalla que ya está en la pila regresa a ella; Inicio limpia la pila. */
     fun navigateTo(screen: AppScreen) {

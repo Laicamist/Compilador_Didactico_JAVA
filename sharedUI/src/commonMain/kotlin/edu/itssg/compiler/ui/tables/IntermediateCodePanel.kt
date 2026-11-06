@@ -118,7 +118,7 @@ fun IntermediateCodePanel(
         if (comparison.techniques.isNotEmpty()) TechniqueLegend(comparison)
         when {
             !comparison.isOptimizable -> TableNotice(
-                "Tres Direcciones no se optimiza (indicación de las reglas del compilador): la optimización se aplica " +
+                "La optimización se aplica " +
                     "solo a Triplos y Cuádruplos.",
                 colors.textSecondary
             )
@@ -157,7 +157,7 @@ fun IntermediateCodePanel(
                         BoundaryLine(comparison.originalClosing, comparison.optimizedClosing, sideBySide, comparison.includesOptimized)
                     }
                     if (comparison.optimizationTable.isNotEmpty()) {
-                        item { SectionTitle("Tabla de optimización (U3)", colors.optimization) }
+                        item { SectionTitle("Tabla de optimización", colors.optimization) }
                         item {
                             OptimizationTable(
                                 rows = comparison.optimizationTable,
@@ -168,7 +168,7 @@ fun IntermediateCodePanel(
                         }
                     }
                     if (report.principalExpressionNotations.isNotEmpty()) {
-                        item { SectionTitle("Notación de la expresión principal (U2)", colors.intermediate) }
+                        item { SectionTitle("Notación de la expresión principal", colors.intermediate) }
                         item { NotationList(report.principalExpressionNotations) }
                     }
                     item { Spacer(Modifier.height(16.dp)) }

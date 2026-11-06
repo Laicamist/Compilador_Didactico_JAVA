@@ -264,7 +264,7 @@ private fun <T> TableRow(
     }
 }
 
-/** Casilla compacta (la de Material ocupa 48 dp, demasiado para una tabla densa). */
+/** Casilla compacta*/
 @Composable
 internal fun SelectBox(checked: Boolean, partial: Boolean, onToggle: () -> Unit) {
     val colors = JAutomataTheme.colors
