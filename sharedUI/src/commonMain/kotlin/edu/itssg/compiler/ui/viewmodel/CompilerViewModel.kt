@@ -28,6 +28,8 @@ import edu.itssg.compiler.ui.state.deriveSessionTitle
 import edu.itssg.compiler.ui.state.initialPhaseStates
 import edu.itssg.compiler.ui.state.resultTab
 import edu.itssg.compiler.ui.state.runningPhaseStates
+import edu.itssg.compiler.ui.tables.DataTableKind
+import edu.itssg.compiler.ui.tables.TableQuery
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -196,6 +198,12 @@ class CompilerViewModel(
 
     fun toggleErrorPanel() = state.update { it.copy(isErrorPanelExpanded = !it.isErrorPanelExpanded) }
 
+    /** Búsqueda, filtros u orden de una tabla (Tokens, Símbolos o Errores). */
+    fun onTableQueryChange(kind: DataTableKind, query: TableQuery) {
+        val clean = query.copy(search = query.search.take(TableQuery.MAX_SEARCH_LENGTH))
+        state.update { it.copy(tableQueries = it.tableQueries + (kind to clean)) }
+    }
+
     //Navegación al código
 
     fun focusOnError(error: CompilerError) = focusOn(error.span)
@@ -345,7 +353,9 @@ class CompilerViewModel(
             lastSavedSource = if (alreadySaved) source else null,
             isErrorPanelExpanded = state.value.isErrorPanelExpanded,
             irFormat = state.value.irFormat,
-            documentVersion = state.value.documentVersion + 1
+            documentVersion = state.value.documentVersion + 1,
+            // Filtros y orden se conservan; la búsqueda era del documento anterior.
+            tableQueries = state.value.tableQueries.mapValues { (_, query) -> query.copy(search = "") }
         )
         sourceForHighlight.value = source
     }

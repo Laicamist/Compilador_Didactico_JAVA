@@ -192,6 +192,64 @@ class OptimizationAndRobustnessTest {
     }
 
     @Test
+    fun tablaCompletaDeOptimizacionConCuadruplosFinalesYRsConCuadruploRepetido() {
+        val r = compiler.compileSynchronously(
+            "public class Rs{ public static void main(String [] x){ double b= Math.random(); " +
+                "double a=b+5*2; double c=a+5*2+8; System.out.println(c);}}"
+        )
+        val table = r.optimizationResult.optimizationTable
+        // Un renglón por cada cuádruplo original.
+        assertEquals(r.intermediateCode.quadruples.size, table.size)
+        // Sin cambios: "~" en afectado y modificado, pero es cuádruplo final.
+        val first = table[0]
+        assertNull(first.tag)
+        assertNull(first.affectedStep)
+        assertTrue(first.isFinal && first.isUnchanged)
+        // FO: se adapta con el número que tendría y se elimina; afecta al cuádruplo que usa su resultado.
+        val fo = table[2]
+        assertEquals("FO", fo.displayCode)
+        assertEquals(4, fo.affectedStep)
+        assertEquals(3, fo.modifiedNumber)
+        assertTrue(!fo.isFinal)
+        // Final renumerado: referencias ya en la nueva numeración y sustituciones aplicadas.
+        val fourth = table[3]
+        assertTrue(fourth.isFinal && !fourth.isUnchanged)
+        assertEquals(3, fourth.modifiedNumber)
+        assertEquals("([2], +, 10, 10+X.0)", fourth.modifiedQuadruple)
+        assertEquals(5, fourth.affectedStep)
+        // RS se marca con el cuádruplo que repite: RS[3].
+        val rs = table[5]
+        assertEquals("RS", rs.code)
+        assertEquals("RS[3]", rs.displayCode)
+        assertEquals(OptimizationTag.SUBEXPRESSION_REDUCTION, OptimizationTag.parse("RS[3]")?.tag)
+        assertEquals(3, rs.repeatsStep)
+        assertEquals("RS[3]", r.optimizationResult.appliedOptimizations.first { it.stepNumber == 6 }.displayCode)
+        assertTrue(r.optimizationResult.annotatedQuadruples[5].annotation.orEmpty().startsWith("RS[3] 7 -> ELIMINAR"))
+        // Los finales de la tabla son exactamente el código optimizado.
+        assertEquals(
+            r.optimizationResult.optimizedBundle.quadruples.map { "(${it.val1}, ${it.operator}, ${it.val2}, ${it.result})" },
+            table.filter { it.isFinal }.map { it.modifiedQuadruple }
+        )
+        assertEquals(listOf(1, 2, 3, 4, 5, 6, 7, 8), table.filter { it.isFinal }.map { it.modifiedNumber })
+        // El último no alimenta a nadie: "~" en afectado.
+        assertNull(table.last().affectedStep)
+    }
+
+    @Test
+    fun tresDireccionesNoSeOptimiza() {
+        // Hay Folding en Cuádruplos, pero Tres Direcciones conserva el código original (regla de la materia).
+        val r = compiler.compileSynchronously(
+            "public class Rs{ public static void main(String [] x){ double b= Math.random(); " +
+                "double a=b+5*2; double c=a+5*2+8; System.out.println(c);}}"
+        )
+        val result = r.optimizationResult
+        assertTrue(result.appliedOptimizations.isNotEmpty())
+        assertTrue(result.optimizedBundle.quadruples.size < r.intermediateCode.quadruples.size)
+        assertEquals(r.intermediateCode.threeAddress, result.optimizedBundle.threeAddress)
+        assertEquals(r.intermediateCode.threeAddressClosing, result.optimizedBundle.threeAddressClosing)
+    }
+
+    @Test
     fun tresDireccionesUsaComoMaximoTresTemporalesCuandoAlcanzan() {
         // Necesita 3 registros: debe resolverse con T1..T3 (con pendientes o reutilizando un operando)
         val r = compiler.compileSynchronously(

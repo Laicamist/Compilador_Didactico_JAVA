@@ -9,6 +9,7 @@ import edu.itssg.compiler.core.ir.OptimizationMark
 import edu.itssg.compiler.core.ir.OptimizationTag
 import edu.itssg.compiler.core.ir.QuadrupleInstruction
 import edu.itssg.compiler.core.ir.TripleInstruction
+import edu.itssg.compiler.core.ir.displayCodeFor
 import edu.itssg.compiler.core.semantic.EvaluatedValue
 
 /**
@@ -22,6 +23,7 @@ import edu.itssg.compiler.core.semantic.EvaluatedValue
  * @property beforeInstruction Cuádruplo original.
  * @property modifiedInstruction Cuádruplo después de recibir los cambios de optimizaciones previas (`null` si no cambió).
  * @property afterAction Explicación de la transformación.
+ * @property repeatsStep Cuádruplo original que se repite (solo RS/RSD).
  */
 data class OptimizationLogEntry(
     val stepNumber: Int,
@@ -30,9 +32,53 @@ data class OptimizationLogEntry(
     val affectedStep: Int?,
     val beforeInstruction: String,
     val modifiedInstruction: String?,
-    val afterAction: String
+    val afterAction: String,
+    val repeatsStep: Int? = null
 ) {
     val code: String get() = tag.codeFor(isDerived)
+
+    /** Código para la tabla: `RS[1]` en Reducción de Subexpresiones; igual a [code] en las demás. */
+    val displayCode: String get() = tag.displayCodeFor(isDerived, repeatsStep)
+}
+
+/**
+ * Renglón de la tabla completa de optimización (formato de los ejercicios de la U3), uno por cada cuádruplo original:
+ * CUÁDRUPLO ORIGINAL | OPTIMIZACIÓN | CUÁDRUPLO AFECTADO | CUÁDRUPLO MODIFICADO.
+ *
+ * El cuádruplo modificado es el original adaptado al orden que tendría tras las optimizaciones anteriores: sus
+ * referencias `[n]` ya apuntan a la nueva numeración y los resultados eliminados ya están sustituidos. Si después se
+ * le aplica una técnica, se marca como eliminado; si no, es un cuádruplo final (se pinta de verde).
+ *
+ * @property stepNumber Número del cuádruplo original.
+ * @property originalQuadruple / originalTriple Instrucción original, sin número (`(5, +, 3, 8)`).
+ * @property tag Técnica aplicada, o `null` si el renglón no se optimizó (`~` en la tabla).
+ * @property affectedStep Cuádruplo original que usa el resultado de este renglón y que, por lo tanto, se ve afectado
+ *   cuando el renglón se optimiza o cambia de número; `null` (`~`) si no hay cambio que propagar.
+ * @property modifiedNumber Número que toma (o tomaría, si se elimina) en el código optimizado.
+ * @property modifiedQuadruple / modifiedTriple Instrucción adaptada, sin número.
+ * @property isFinal Sobrevive a la optimización (cuádruplo final).
+ * @property isUnchanged Final, con el mismo número y la misma instrucción (`~` en la columna de modificado).
+ * @property repeatsStep Cuádruplo original que se repite (solo RS/RSD): se escribe `RS[n]`.
+ */
+data class OptimizationTableRow(
+    val stepNumber: Int,
+    val originalQuadruple: String,
+    val originalTriple: String,
+    val tag: OptimizationTag?,
+    val isDerived: Boolean,
+    val affectedStep: Int?,
+    val modifiedNumber: Int,
+    val modifiedQuadruple: String,
+    val modifiedTriple: String,
+    val isFinal: Boolean,
+    val isUnchanged: Boolean,
+    val explanation: String?,
+    val repeatsStep: Int? = null
+) {
+    val code: String? get() = tag?.codeFor(isDerived)
+
+    /** Código para la columna Optimización (`RS[1]`, `FO`…), o `null` si no se optimizó. */
+    val displayCode: String? get() = tag?.displayCodeFor(isDerived, repeatsStep)
 }
 
 /**
@@ -40,14 +86,17 @@ data class OptimizationLogEntry(
  *
  * @property annotatedQuadruples Cuádruplos originales con su marca (`FO 2 -> ELIMINAR`, `PCD 6 -> ELIMINAR`).
  * @property annotatedTriples Triplos originales con las mismas marcas.
- * @property optimizedBundle CI optimizado (Triplos, Cuádruplos y Tres Direcciones) renumerado.
+ * @property optimizedBundle CI optimizado: Triplos y Cuádruplos renumerados. Tres Direcciones no se optimiza
+ *   (indicación del autor de las reglas del compilador): conserva el código original sin cambios.
  * @property appliedOptimizations Bitácora de cada técnica aplicada (tabla de la U3).
+ * @property optimizationTable Tabla completa de la U3: todos los cuádruplos originales con su versión modificada.
  */
 data class OptimizationResult(
     val annotatedQuadruples: List<QuadrupleInstruction>,
     val annotatedTriples: List<TripleInstruction>,
     val optimizedBundle: IntermediateCodeBundle,
-    val appliedOptimizations: List<OptimizationLogEntry>
+    val appliedOptimizations: List<OptimizationLogEntry>,
+    val optimizationTable: List<OptimizationTableRow> = emptyList()
 )
 
 /**
@@ -77,7 +126,9 @@ class CodeOptimizer(
         val tag: OptimizationTag,
         val isDerived: Boolean,
         val replacement: IrOperand,
-        val description: String
+        val description: String,
+        /** Cuádruplo original que se repite (solo RS/RSD). */
+        val repeatsStep: Int? = null
     )
 
     fun optimize(originalBundle: IntermediateCodeBundle): OptimizationResult {
@@ -87,7 +138,8 @@ class CodeOptimizer(
                 annotatedQuadruples = originalBundle.quadruples,
                 annotatedTriples = originalBundle.triples,
                 optimizedBundle = originalBundle,
-                appliedOptimizations = emptyList()
+                appliedOptimizations = emptyList(),
+                optimizationTable = emptyList()
             )
         }
 
@@ -150,7 +202,10 @@ class CodeOptimizer(
             val modifiedText = if (wasModified) mod.toQuadruple().formatAcademic().substringAfter(". ") else null
             val annotation = buildString {
                 if (decision != null) {
-                    append(OptimizationMark(decision.tag, decision.isDerived, affected, eliminates = true).formatAcademic())
+                    append(
+                        OptimizationMark(decision.tag, decision.isDerived, affected, eliminates = true, repeatsStep = decision.repeatsStep)
+                            .formatAcademic()
+                    )
                 }
                 if (modifiedText != null) {
                     if (isNotEmpty()) append("  ")
@@ -167,7 +222,8 @@ class CodeOptimizer(
                     affectedStep = affected,
                     beforeInstruction = op.toQuadruple().formatAcademic(),
                     modifiedInstruction = modifiedText,
-                    afterAction = decision.description
+                    afterAction = decision.description,
+                    repeatsStep = decision.repeatsStep
                 )
             }
         }
@@ -183,13 +239,55 @@ class CodeOptimizer(
         val optimizedOps = survivors.map { op ->
             op.copy(step = newNumber.getValue(op.step), arg1 = renumber(op.arg1), arg2 = renumber(op.arg2))
         }
-        val optimizedBundle = irGenerator.fromOperations(optimizedOps, originalBundle.rootHeader)
+        //Tabla completa de la U3 (todos los renglones)
+        // Número que toma cada renglón: los finales, su nuevo número; los eliminados, el que tendrían en ese punto.
+        val tentativeNumber = HashMap<Int, Int>()
+        var keptSoFar = 0
+        for (op in original) {
+            tentativeNumber[op.step] = if (op.step in eliminated) keptSoFar + 1 else ++keptSoFar
+        }
+        fun renumberForTable(o: IrOperand): IrOperand {
+            val r = resolve(o)
+            return if (r is IrOperand.StepRef) tentativeNumber[r.step]?.let { IrOperand.StepRef(it) } ?: r else r
+        }
+        val optimizationTable = original.map { op ->
+            val decision = eliminated[op.step]
+            val number = tentativeNumber.getValue(op.step)
+            val adapted = current.getValue(op.step).let {
+                it.copy(step = number, arg1 = renumberForTable(it.arg1), arg2 = renumberForTable(it.arg2))
+            }
+            val isFinal = decision == null
+            val originalQuad = op.toQuadruple().formatAcademic().substringAfter(". ")
+            val adaptedQuad = adapted.toQuadruple().formatAcademic().substringAfter(". ")
+            OptimizationTableRow(
+                stepNumber = op.step,
+                originalQuadruple = originalQuad,
+                originalTriple = op.toTriple().formatAcademic().substringAfter(". "),
+                tag = decision?.tag,
+                isDerived = decision?.isDerived ?: false,
+                affectedStep = if (!isFinal || number != op.step) firstConsumerOf[op.step] else null,
+                modifiedNumber = number,
+                modifiedQuadruple = adaptedQuad,
+                modifiedTriple = adapted.toTriple().formatAcademic().substringAfter(". "),
+                isFinal = isFinal,
+                isUnchanged = isFinal && number == op.step && adaptedQuad == originalQuad,
+                explanation = decision?.description,
+                repeatsStep = decision?.repeatsStep
+            )
+        }
+
+        // Tres Direcciones no se optimiza (regla de la materia): se conserva el original tal cual.
+        val optimizedBundle = irGenerator.fromOperations(optimizedOps, originalBundle.rootHeader).copy(
+            threeAddress = originalBundle.threeAddress,
+            threeAddressClosing = originalBundle.threeAddressClosing
+        )
 
         return OptimizationResult(
             annotatedQuadruples = annotatedQuads,
             annotatedTriples = annotatedTriples,
             optimizedBundle = optimizedBundle,
-            appliedOptimizations = logs
+            appliedOptimizations = logs,
+            optimizationTable = optimizationTable
         )
     }
 
@@ -210,7 +308,8 @@ class CodeOptimizer(
                         val derived = !sameExpression(previousOriginal, op)
                         return Decision(
                             OptimizationTag.SUBEXPRESSION_REDUCTION, derived, IrOperand.StepRef(previousStep),
-                            "La operación ya se calculó en el cuádruplo $previousStep: se reutiliza [$previousStep]"
+                            "La operación ya se calculó en el cuádruplo $previousStep: se reutiliza [$previousStep]",
+                            repeatsStep = previousStep
                         )
                     }
                 }

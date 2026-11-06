@@ -157,6 +157,8 @@ class CompilerSessionRepository(
                 result_value = q.result
             )
         }
+        // Tres Direcciones no se optimiza: solo se guarda con el código original (sin filas duplicadas).
+        if (isOptimized != 0L) return
         for (tac in bundle.threeAddress) {
             queries.insertIntermediateCode(
                 session_id = sessionId,

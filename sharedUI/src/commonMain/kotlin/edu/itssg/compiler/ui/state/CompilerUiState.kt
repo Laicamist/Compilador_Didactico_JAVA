@@ -8,6 +8,8 @@ import edu.itssg.compiler.core.lexer.LexicalAnomaly
 import edu.itssg.compiler.core.lexer.Token
 import edu.itssg.compiler.core.lexer.TokenCategory
 import edu.itssg.compiler.core.security.SourceSpan
+import edu.itssg.compiler.ui.tables.DataTableKind
+import edu.itssg.compiler.ui.tables.TableQuery
 
 /** Fases que aparecen en la barra de fases del espacio de trabajo, en orden de ejecución. */
 enum class CompilerPhase(val displayName: String, val shortName: String) {
@@ -91,6 +93,8 @@ const val UNTITLED_SESSION_TITLE: String = "Sin título"
  * @property documentVersion Aumenta cada vez que se carga otro documento (Nuevo trabajo, Abrir, Historial). El
  *   editor lo usa para reiniciar su texto, su cursor y su historial de Deshacer; mientras no cambie, el editor es
  *   el dueño del texto y solo informa cada cambio con `onSourceChange`.
+ * @property tableQueries Búsqueda, filtros y orden de cada tabla (Tokens, Símbolos, Errores); se conservan al
+ *   cambiar de pestaña y al volver a compilar.
  */
 data class CompilerUiState(
     val sessionTitle: String = UNTITLED_SESSION_TITLE,
@@ -111,7 +115,8 @@ data class CompilerUiState(
     val focusRequest: EditorFocusRequest? = null,
     val isSaving: Boolean = false,
     val lastSavedSource: String? = null,
-    val documentVersion: Int = 0
+    val documentVersion: Int = 0,
+    val tableQueries: Map<DataTableKind, TableQuery> = emptyMap()
 ) {
     /** El código cambió después de compilar: los resultados en pantalla ya no corresponden al editor. */
     val isReportStale: Boolean
@@ -127,6 +132,8 @@ data class CompilerUiState(
     fun isRevealed(phase: CompilerPhase): Boolean = report != null && phase.ordinal <= revealedThroughIndex
 
     fun phaseState(phase: CompilerPhase): PhaseState = phases[phase.ordinal]
+
+    fun tableQuery(kind: DataTableKind): TableQuery = tableQueries[kind] ?: TableQuery()
 
     /** Errores de las fases ya visibles, en el orden de la Tabla de Errores (línea, columna). */
     val visibleErrors: List<CompilerError>
@@ -166,11 +173,7 @@ internal fun CompilerPhase.resultTab(): ResultTab = when (this) {
 internal fun buildPhaseStates(report: CompilationReport, revealedThroughIndex: Int?): List<PhaseState> {
     val limit = revealedThroughIndex ?: CompilerPhase.entries.lastIndex
     val quotaMessage = report.quotaAbortedMessage
-    val irBlockReason: String? = when {
-        quotaMessage != null -> quotaMessage
-        report.errors.isNotEmpty() -> "Corrige los errores para generar el código intermedio."
-        else -> null
-    }
+    val irBlockReason: String? = report.intermediateCodeBlockReason()
 
     return CompilerPhase.entries.map { phase ->
         if (phase.ordinal > limit) return@map PhaseState(phase, PhaseStatus.PENDING)
@@ -233,6 +236,16 @@ internal fun buildPhaseStates(report: CompilationReport, revealedThroughIndex: I
             }
         }
     }
+}
+
+/**
+ * Motivo por el que el Código intermedio y la Optimización quedan bloqueados, o `null` si se pueden mostrar.
+ * Regla: cualquier error (léxico, sintáctico o semántico) o el aborto por límites de seguridad los bloquea.
+ */
+internal fun CompilationReport.intermediateCodeBlockReason(): String? = when {
+    quotaAbortedMessage != null -> quotaAbortedMessage
+    errors.isNotEmpty() -> "Corrige los errores para generar el código intermedio."
+    else -> null
 }
 
 /** "6 → 3 instrucciones (−50 %)" o "Sin cambios (4 instrucciones)". */

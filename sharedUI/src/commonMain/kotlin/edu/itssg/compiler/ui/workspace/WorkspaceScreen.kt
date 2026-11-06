@@ -16,13 +16,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,7 +45,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -57,24 +54,26 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import edu.itssg.compiler.core.error.ErrorPhaseType
 import edu.itssg.compiler.core.security.CompilerSecurityConfig
-import edu.itssg.compiler.core.security.SourceSpan
 import edu.itssg.compiler.ui.data.AppSettings
 import edu.itssg.compiler.ui.editor.CodeEditor
 import edu.itssg.compiler.ui.editor.EditorDiagnostics
-import edu.itssg.compiler.ui.editor.ErrorTypeMarker
 import edu.itssg.compiler.ui.files.SourceLoadResult
 import edu.itssg.compiler.ui.files.rememberSourceFilePicker
 import edu.itssg.compiler.ui.state.CompilerPhase
 import edu.itssg.compiler.ui.state.CompilerUiState
 import edu.itssg.compiler.ui.state.PhaseState
 import edu.itssg.compiler.ui.state.PhaseStatus
-import edu.itssg.compiler.ui.state.ResultTab
+import edu.itssg.compiler.ui.tables.DataTableKind
+import edu.itssg.compiler.ui.tables.ErrorTablePanel
+import edu.itssg.compiler.ui.tables.errorRowsFromAnomalies
+import edu.itssg.compiler.ui.tables.errorRowsFromReport
 import edu.itssg.compiler.ui.theme.JAutomataFonts
 import edu.itssg.compiler.ui.theme.JAutomataTheme
 import edu.itssg.compiler.ui.viewmodel.CompilerViewModel
@@ -82,9 +81,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * Espacio de trabajo (Paso 3.2): barra superior, barra de fases, editor y panel de resultados con divisor
- * arrastrable, y la lista de errores plegable. Los paneles tabulares completos (Tokens, Símbolos, Errores con el
- * formato de la materia y Código intermedio) llegan en el Paso 3.3, y el visor de árboles en el 3.4.
+ * Espacio de trabajo: barra superior, barra de fases, editor y panel de resultados con divisor arrastrable
+ * ([ResultsPanel]: Tokens, Símbolos y Código intermedio, Paso 3.3) y abajo la Tabla de Errores plegable y con
+ * altura ajustable. El visor de árboles llega en el Paso 3.4.
  *
  * Atajos: Ctrl+S guardar · Ctrl+O abrir · F5 o Ctrl+Enter compilar todo · F6 paso a paso.
  * Volver al Inicio no descarta nada: el trabajo sigue en el ViewModel y se puede continuar desde ahí.
@@ -134,13 +133,7 @@ fun WorkspaceScreen(
         }
     }
     val errorRows = remember(state.report, state.compiledSource, state.sourceCode, state.highlightAnomalies, state.stepByStep) {
-        if (reportIsCurrent) {
-            state.visibleErrors.map { ErrorRow(it.type, it.line, it.column, it.offendingLexeme, it.justification, it.span, it.index) }
-        } else {
-            state.highlightAnomalies.map {
-                ErrorRow(ErrorPhaseType.LEXICAL, it.span.start.line, it.span.start.column, it.lexeme, it.justification, it.span, null)
-            }
-        }
+        if (reportIsCurrent) errorRowsFromReport(state.visibleErrors) else errorRowsFromAnomalies(state.highlightAnomalies)
     }
 
     Column(
@@ -221,14 +214,19 @@ fun WorkspaceScreen(
                 )
             }
             val errorList: @Composable (Modifier, Boolean) -> Unit = { listModifier, collapsible ->
-                ErrorStrip(
+                ErrorTablePanel(
                     rows = errorRows,
                     isLive = !reportIsCurrent,
                     isStale = state.isReportStale,
+                    hasCurrentReport = reportIsCurrent,
                     expanded = !collapsible || state.isErrorPanelExpanded,
                     collapsible = collapsible,
                     onToggle = viewModel::toggleErrorPanel,
-                    onRowClick = { row -> viewModel.focusOn(row.span) },
+                    query = state.tableQuery(DataTableKind.ERRORS),
+                    onQueryChange = { viewModel.onTableQueryChange(DataTableKind.ERRORS, it) },
+                    onFocus = viewModel::focusOn,
+                    onMessage = onMessage,
+                    resetKey = if (reportIsCurrent) state.report else state.highlightAnomalies,
                     modifier = listModifier
                 )
             }
@@ -236,6 +234,10 @@ fun WorkspaceScreen(
             if (maxWidth >= WIDE_LAYOUT_MIN_WIDTH) {
                 val totalWidthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
                 var splitFraction by remember { mutableFloatStateOf(DEFAULT_SPLIT) }
+                val density = LocalDensity.current
+                val maxErrorHeight = (maxHeight * MAX_ERROR_PANEL_FRACTION).coerceAtLeast(MIN_ERROR_PANEL_HEIGHT)
+                var errorPanelHeightDp by remember { mutableFloatStateOf(DEFAULT_ERROR_PANEL_HEIGHT.value) }
+                val errorPanelHeight = errorPanelHeightDp.dp.coerceIn(MIN_ERROR_PANEL_HEIGHT, maxErrorHeight)
                 Column(Modifier.fillMaxSize()) {
                     Row(Modifier.weight(1f).fillMaxWidth()) {
                         editor(Modifier.weight(splitFraction).fillMaxHeight())
@@ -252,17 +254,43 @@ fun WorkspaceScreen(
                                     }
                                 )
                         )
-                        ResultsPanel(state = state, onTabSelected = viewModel::onTabSelected, modifier = Modifier.weight(1f - splitFraction).fillMaxHeight())
+                        ResultsPanel(
+                            state = state,
+                            viewModel = viewModel,
+                            onMessage = onMessage,
+                            modifier = Modifier.weight(1f - splitFraction).fillMaxHeight()
+                        )
                     }
-                    HorizontalDivider(color = colors.border)
-                    errorList(Modifier.fillMaxWidth(), true)
+                    if (state.isErrorPanelExpanded) {
+                        // Asa para cambiar la altura de la Tabla de Errores.
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .background(colors.border)
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .draggable(
+                                    orientation = Orientation.Vertical,
+                                    state = rememberDraggableState { delta ->
+                                        val deltaDp = with(density) { delta.toDp() }
+                                        val current = errorPanelHeightDp.dp.coerceIn(MIN_ERROR_PANEL_HEIGHT, maxErrorHeight)
+                                        errorPanelHeightDp = (current - deltaDp)
+                                            .coerceIn(MIN_ERROR_PANEL_HEIGHT, maxErrorHeight).value
+                                    }
+                                )
+                        )
+                        errorList(Modifier.fillMaxWidth().height(errorPanelHeight), true)
+                    } else {
+                        HorizontalDivider(color = colors.border)
+                        errorList(Modifier.fillMaxWidth(), true)
+                    }
                 }
             } else {
                 CompactWorkspace(
                     errorCount = errorRows.size,
                     focusRequestId = state.focusRequest?.requestId,
                     editor = editor,
-                    results = { ResultsPanel(state = state, onTabSelected = viewModel::onTabSelected, modifier = it) },
+                    results = { ResultsPanel(state = state, viewModel = viewModel, onMessage = onMessage, modifier = it) },
                     errors = { errorList(it, false) }
                 )
             }
@@ -301,17 +329,6 @@ fun WorkspaceScreen(
         )
     }
 }
-
-/** Fila de la lista de errores (de la compilación o, sin compilar, léxicos en vivo). */
-private data class ErrorRow(
-    val type: ErrorPhaseType,
-    val line: Int,
-    val column: Int,
-    val lexeme: String,
-    val message: String,
-    val span: SourceSpan,
-    val number: Int?
-)
 
 //Barra superior
 
@@ -494,156 +511,6 @@ private fun StepCard(
     }
 }
 
-//Panel de resultados (base del Paso 3.3)
-
-@Composable
-private fun ResultsPanel(state: CompilerUiState, onTabSelected: (ResultTab) -> Unit, modifier: Modifier = Modifier) {
-    val colors = JAutomataTheme.colors
-    Column(modifier.background(colors.surface1)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().background(colors.surface2).horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            ResultTab.entries.forEach { tab ->
-                val available = tab in state.availableTabs
-                val selected = tab == state.selectedTab
-                Text(
-                    text = tab.displayName,
-                    fontSize = 13.sp,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = when {
-                        !available -> colors.textMuted
-                        selected -> colors.textPrimary
-                        else -> colors.textSecondary
-                    },
-                    modifier = Modifier
-                        .clickable(enabled = available) { onTabSelected(tab) }
-                        .background(if (selected) colors.surface1 else Color.Transparent)
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                )
-            }
-        }
-        HorizontalDivider(color = colors.border)
-        Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
-            val report = state.report
-            val (title, detail) = when {
-                state.isCompiling -> "Compilando…" to "El analizador está recorriendo las fases."
-                report == null -> "Sin resultados todavía" to
-                        "Escribe o abre un programa y presiona ▶ Compilar todo (F5), o ⏭ Paso a paso (F6) para ver cada fase."
-                else -> {
-                    val phase = when (state.selectedTab) {
-                        ResultTab.TOKENS -> CompilerPhase.LEXICAL
-                        ResultTab.TREE -> CompilerPhase.SYNTACTIC
-                        ResultTab.SYMBOLS -> CompilerPhase.SEMANTIC
-                        ResultTab.INTERMEDIATE_CODE -> CompilerPhase.INTERMEDIATE_CODE
-                    }
-                    val phaseState = state.phaseState(phase)
-                    "${state.selectedTab.displayName} · ${phase.displayName}" to
-                            "${phaseState.summary}\n\nEl panel completo de esta pestaña se incorpora en el Paso 3.3."
-                }
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, fontFamily = JAutomataFonts.title, color = colors.textPrimary)
-                Text(detail, fontSize = 13.sp, color = colors.textSecondary, lineHeight = 19.sp)
-            }
-        }
-    }
-}
-
-//Lista de errores
-
-@Composable
-private fun ErrorStrip(
-    rows: List<ErrorRow>,
-    isLive: Boolean,
-    isStale: Boolean,
-    expanded: Boolean,
-    collapsible: Boolean,
-    onToggle: () -> Unit,
-    onRowClick: (ErrorRow) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val colors = JAutomataTheme.colors
-    Column(modifier.background(colors.surface1)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(colors.surface2)
-                .clickable(enabled = collapsible, onClick = onToggle)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            if (collapsible) Text(if (expanded) "▾" else "▸", color = colors.textSecondary, fontSize = 12.sp)
-            Text("Errores (${rows.size})", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
-            for (type in ErrorPhaseType.entries) {
-                val count = rows.count { it.type == type }
-                if (count > 0) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        ErrorTypeMarker(type, size = 8.dp)
-                        Text("$count ${type.displayName.lowercase()}", fontSize = 12.sp, color = colors.error(type))
-                    }
-                }
-            }
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = when {
-                    isLive && rows.isNotEmpty() -> "Errores léxicos detectados al escribir · compila para ver todos"
-                    isLive -> "Compila para generar la Tabla de Errores"
-                    isStale -> "El código cambió: compila de nuevo"
-                    else -> ""
-                },
-                fontSize = 11.sp,
-                color = colors.textMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        if (expanded && rows.isNotEmpty()) {
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = if (collapsible) 170.dp else 2000.dp)) {
-                itemsIndexed(rows) { index, row ->
-                    if (index > 0) HorizontalDivider(color = colors.border)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onRowClick(row) }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        ErrorTypeMarker(row.type, size = 9.dp)
-                        Text(
-                            text = "${row.line}:${row.column}",
-                            fontFamily = JAutomataFonts.code,
-                            fontSize = 12.sp,
-                            color = colors.textSecondary,
-                            modifier = Modifier.width(56.dp)
-                        )
-                        Text(row.type.displayName, fontSize = 12.sp, color = colors.error(row.type), modifier = Modifier.width(76.dp))
-                        Text(
-                            text = row.lexeme.ifEmpty { "—" },
-                            fontFamily = JAutomataFonts.code,
-                            fontSize = 12.sp,
-                            color = colors.textPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.width(90.dp)
-                        )
-                        Text(
-                            text = row.message.lineSequence().first(),
-                            fontSize = 12.sp,
-                            color = colors.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
 //Diseño compacto (teléfono)
 
 private enum class CompactTab(val label: String) { EDITOR("Editor"), RESULTS("Resultados"), ERRORS("Errores") }
@@ -745,3 +612,6 @@ private val WIDE_LAYOUT_MIN_WIDTH = 840.dp
 private const val DEFAULT_SPLIT = 0.56f
 private const val MIN_SPLIT = 0.28f
 private const val MAX_SPLIT = 0.8f
+private val DEFAULT_ERROR_PANEL_HEIGHT: Dp = 220.dp
+private val MIN_ERROR_PANEL_HEIGHT: Dp = 110.dp
+private const val MAX_ERROR_PANEL_FRACTION = 0.6f

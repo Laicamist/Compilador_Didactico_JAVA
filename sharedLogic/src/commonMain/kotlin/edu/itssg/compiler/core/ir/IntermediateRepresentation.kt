@@ -45,13 +45,13 @@ enum class OptimizationTag(val code: String, val description: String) {
         const val DERIVED_SUFFIX = "D"
 
         /**
-         * Interpreta un código académico (`PC`, `PCD`, `FO`, `FOD`, …).
-         * Ningún código base termina en `D`, por lo que la lectura no es ambigua.
+         * Interpreta un código académico (`PC`, `PCD`, `FO`, `FOD`, `RS[1]`, …). El cuádruplo repetido entre
+         * corchetes de RS se ignora. Ningún código base termina en `D`, por lo que la lectura no es ambigua.
          *
          * @return la etiqueta y si es derivada, o `null` si el código no es válido.
          */
         fun parse(rawCode: String): OptimizationMarkCode? {
-            val normalized = rawCode.trim().uppercase()
+            val normalized = rawCode.trim().uppercase().substringBefore('[').trim()
             entries.firstOrNull { it.code == normalized }?.let {
                 return OptimizationMarkCode(it, isDerived = false)
             }
@@ -61,6 +61,17 @@ enum class OptimizationTag(val code: String, val description: String) {
             return null
         }
     }
+}
+
+/**
+ * Código que se escribe en la tabla: el de la técnica y, para Reducción de Subexpresiones, el cuádruplo que se
+ * repite entre corchetes (`RS[1]`, `RSD[4]`), como lo pide la materia.
+ *
+ * @param repeatsStep Cuádruplo original que ya calculaba la misma operación (solo RS/RSD).
+ */
+fun OptimizationTag.displayCodeFor(isDerived: Boolean, repeatsStep: Int?): String {
+    val base = codeFor(isDerived)
+    return if (this == OptimizationTag.SUBEXPRESSION_REDUCTION && repeatsStep != null) "$base[$repeatsStep]" else base
 }
 
 /** Par etiqueta + bandera de derivación, resultado de [OptimizationTag.parse]. */
@@ -75,21 +86,26 @@ data class OptimizationMarkCode(
  * Marca pedagógica que se escribe junto a un cuádruplo/triplo en la tabla de optimización.
  *
  * Formato de la lámina: `<CÓDIGO> <cuádruplo afectado> -> ELIMINAR`
- * Ej. `FO 2 -> ELIMINAR`, `PCD 6 -> ELIMINAR`, `CM -> ELIMINAR`.
+ * Ej. `FO 2 -> ELIMINAR`, `PCD 6 -> ELIMINAR`, `RS[1] 6 -> ELIMINAR`, `CM -> ELIMINAR`.
  *
  * @property affectedStep Cuádruplo al que se propaga el cambio (columna "Cuádruplo afectado"); `null` si no aplica (ej. `CM`).
  * @property eliminates Si la instrucción optimizada se suprime del CI optimizado.
+ * @property repeatsStep Cuádruplo que se repite (solo RS/RSD): se escribe `RS[n]`.
  */
 data class OptimizationMark(
     val tag: OptimizationTag,
     val isDerived: Boolean = false,
     val affectedStep: Int? = null,
-    val eliminates: Boolean = true
+    val eliminates: Boolean = true,
+    val repeatsStep: Int? = null
 ) {
     val code: String get() = tag.codeFor(isDerived)
 
+    /** Código con el cuádruplo repetido (`RS[1]`); igual a [code] en las demás técnicas. */
+    val displayCode: String get() = tag.displayCodeFor(isDerived, repeatsStep)
+
     fun formatAcademic(): String = buildString {
-        append(code)
+        append(displayCode)
         affectedStep?.let { append(' ').append(it) }
         if (eliminates) append(" -> ELIMINAR")
     }
