@@ -10,15 +10,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.EventQueue
-import java.awt.FileDialog
-import java.awt.Frame
+import java.awt.KeyboardFocusManager
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.swing.JFileChooser
+import javax.swing.UIManager
+import javax.swing.filechooser.FileNameExtensionFilter
 
 /**
- * Desktop: diálogo nativo del sistema ("Abrir"). Empieza en `Documentos/J-Autómata Studio` si existe (ahí se
- * exportará), si no en `Documentos`, y después recuerda la última carpeta usada.
+ * Desktop: diálogo "Abrir" con filtro "Código fuente (*.java, *.txt)" y el aspecto del sistema. Empieza en
+ * `Documentos/J-Autómata Studio` si existe (ahí se exportará), si no en `Documentos`, y después recuerda la última
+ * carpeta usada.
+ *
+ * Se usa [JFileChooser] en lugar de `java.awt.FileDialog`: en Windows, `FileDialog` con filtro de nombres abre el
+ * diálogo antiguo y deja deshabilitado el botón "Abrir" al seleccionar un archivo, así que no se podía abrir nada.
  *
  * Importante: el diálogo es modal y, mientras está abierto, AWT procesa eventos en un ciclo anidado. Si se abre desde
  * una corrutina de Compose (`rememberCoroutineScope`), ese ciclo anidado corre *dentro* del despachador de Compose
@@ -74,23 +80,37 @@ private var lastDirectory: String? = null
 
 /** Se ejecuta en el hilo de AWT, fuera de Compose. Devuelve `null` si el usuario cancela. */
 private fun chooseFile(): File? {
-    val dialog = FileDialog(null as Frame?, "Abrir código fuente (.java / .txt)", FileDialog.LOAD)
-    try {
-        dialog.isMultipleMode = false
-        dialog.directory = lastDirectory ?: defaultDirectory()
-        // macOS y Linux respetan el filtro; en Windows se usa el patrón del nombre.
-        dialog.setFilenameFilter { _, name -> SourceFileLoader.validateName(name) == null }
-        if (System.getProperty("os.name").orEmpty().startsWith("Windows", ignoreCase = true)) {
-            dialog.file = "*.java;*.txt"
-        }
-        dialog.isVisible = true
+    useSystemLookAndFeel()
+    val start = File(lastDirectory ?: defaultDirectory())
+    val chooser = JFileChooser(if (start.isDirectory) start else null).apply {
+        dialogTitle = "Abrir código fuente (.java / .txt)"
+        fileSelectionMode = JFileChooser.FILES_ONLY
+        isMultiSelectionEnabled = false
+        val sourceFilter = FileNameExtensionFilter(
+            "Código fuente (*.java, *.txt)",
+            *SourceFileLoader.ALLOWED_EXTENSIONS.toTypedArray()
+        )
+        addChoosableFileFilter(sourceFilter)
+        fileFilter = sourceFilter
+        isAcceptAllFileFilterUsed = true // "Todos los archivos": la extensión se valida después de elegir.
+    }
+    // Se centra sobre la ventana de la app y la bloquea mientras está abierto.
+    val owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
+    if (chooser.showOpenDialog(owner) != JFileChooser.APPROVE_OPTION) return null
+    val file = chooser.selectedFile ?: return null
+    lastDirectory = file.parentFile?.absolutePath
+    return file
+}
 
-        val name = dialog.file ?: return null
-        val directory = dialog.directory ?: return null
-        lastDirectory = directory
-        return File(directory, name)
-    } finally {
-        dialog.dispose()
+/** Aspecto nativo para el selector (una sola vez). Si falla, se queda el aspecto de Swing por defecto. */
+private val lookAndFeelApplied = AtomicBoolean(false)
+
+private fun useSystemLookAndFeel() {
+    if (!lookAndFeelApplied.compareAndSet(false, true)) return
+    try {
+        UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName())
+    } catch (e: Exception) {
+        // Aspecto por defecto: el selector funciona igual.
     }
 }
 
