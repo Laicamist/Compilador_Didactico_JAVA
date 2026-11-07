@@ -55,6 +55,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -70,6 +71,7 @@ import edu.itssg.compiler.ui.state.CompilerPhase
 import edu.itssg.compiler.ui.state.CompilerUiState
 import edu.itssg.compiler.ui.state.PhaseState
 import edu.itssg.compiler.ui.state.PhaseStatus
+import edu.itssg.compiler.ui.state.TreeKind
 import edu.itssg.compiler.ui.tables.DataTableKind
 import edu.itssg.compiler.ui.tables.ErrorTablePanel
 import edu.itssg.compiler.ui.tables.errorRowsFromAnomalies
@@ -82,8 +84,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Espacio de trabajo: barra superior, barra de fases, editor y panel de resultados con divisor arrastrable
- * ([ResultsPanel]: Tokens, Símbolos y Código intermedio, Paso 3.3) y abajo la Tabla de Errores plegable y con
- * altura ajustable. El visor de árboles llega en el Paso 3.4.
+ * ([ResultsPanel]: Tokens, Símbolos, Árbol y Código intermedio) y abajo la Tabla de Errores plegable y con
+ * altura ajustable. El visor de árboles (Paso 3.4) marca en el editor el fragmento del nodo elegido.
  *
  * Atajos: Ctrl+S guardar · Ctrl+O abrir · F5 o Ctrl+Enter compilar todo · F6 paso a paso.
  * Volver al Inicio no descarta nada: el trabajo sigue en el ViewModel y se puede continuar desde ahí.
@@ -210,7 +212,11 @@ fun WorkspaceScreen(
                     },
                     focusRequest = state.focusRequest,
                     onFocusRequestHandled = viewModel::onFocusRequestHandled,
-                    modifier = editorModifier
+                    modifier = editorModifier,
+                    codeHighlight = state.codeHighlight
+                        ?.takeIf { reportIsCurrent }
+                        ?.let { TextRange(it.start.offset, it.end.offset) },
+                    codeHighlightColor = if (state.treeKind == TreeKind.SYNTACTIC) colors.syntactic else colors.intermediate
                 )
             }
             val errorList: @Composable (Modifier, Boolean) -> Unit = { listModifier, collapsible ->
@@ -257,6 +263,7 @@ fun WorkspaceScreen(
                         ResultsPanel(
                             state = state,
                             viewModel = viewModel,
+                            animationsEnabled = settings.animationsEnabled,
                             onMessage = onMessage,
                             modifier = Modifier.weight(1f - splitFraction).fillMaxHeight()
                         )
@@ -288,9 +295,18 @@ fun WorkspaceScreen(
             } else {
                 CompactWorkspace(
                     errorCount = errorRows.size,
-                    focusRequestId = state.focusRequest?.requestId,
+                    // Solo las peticiones que toman el foco cambian a la pestaña Editor (el visor de árboles no).
+                    focusRequestId = state.focusRequest?.takeIf { it.takeFocus }?.requestId,
                     editor = editor,
-                    results = { ResultsPanel(state = state, viewModel = viewModel, onMessage = onMessage, modifier = it) },
+                    results = {
+                        ResultsPanel(
+                            state = state,
+                            viewModel = viewModel,
+                            animationsEnabled = settings.animationsEnabled,
+                            onMessage = onMessage,
+                            modifier = it
+                        )
+                    },
                     errors = { errorList(it, false) }
                 )
             }

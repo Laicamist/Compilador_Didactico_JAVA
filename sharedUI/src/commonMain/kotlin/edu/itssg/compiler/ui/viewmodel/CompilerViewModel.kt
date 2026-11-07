@@ -30,6 +30,7 @@ import edu.itssg.compiler.ui.state.resultTab
 import edu.itssg.compiler.ui.state.runningPhaseStates
 import edu.itssg.compiler.ui.tables.DataTableKind
 import edu.itssg.compiler.ui.tables.TableQuery
+import edu.itssg.compiler.ui.tree.TreeViewerRegistry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -186,15 +187,22 @@ class CompilerViewModel(
     fun onPhaseSelected(phase: CompilerPhase) {
         state.update { current ->
             if (!current.isRevealed(phase)) current
-            else current.copy(selectedTab = phase.resultTab(), treeKind = treeKindFor(phase, current.treeKind))
+            else current.copy(
+                selectedTab = phase.resultTab(),
+                treeKind = treeKindFor(phase, current.treeKind),
+                codeHighlight = current.codeHighlight.takeIf { phase.resultTab() == ResultTab.TREE }
+            )
         }
     }
 
-    fun onTabSelected(tab: ResultTab) = state.update { it.copy(selectedTab = tab) }
+    fun onTabSelected(tab: ResultTab) = state.update {
+        // La marca del visor de árboles solo tiene sentido mientras se ve el árbol.
+        it.copy(selectedTab = tab, codeHighlight = it.codeHighlight.takeIf { _ -> tab == ResultTab.TREE })
+    }
 
     fun onIrFormatSelected(format: IrFormatKind) = state.update { it.copy(irFormat = format) }
 
-    fun onTreeKindSelected(kind: TreeKind) = state.update { it.copy(treeKind = kind) }
+    fun onTreeKindSelected(kind: TreeKind) = state.update { it.copy(treeKind = kind, codeHighlight = null) }
 
     fun toggleErrorPanel() = state.update { it.copy(isErrorPanelExpanded = !it.isErrorPanelExpanded) }
 
@@ -216,10 +224,27 @@ class CompilerViewModel(
 
     fun focusOnSemanticNode(node: SemanticAstNode) = focusOn(node.span)
 
-    fun focusOn(span: SourceSpan) {
+    /** @param takeFocus `false`: el editor solo se desplaza al fragmento (ver [EditorFocusRequest.takeFocus]). */
+    fun focusOn(span: SourceSpan, takeFocus: Boolean = true) {
         val requestId = ++focusRequestCounter
-        state.update { it.copy(focusRequest = EditorFocusRequest(span, requestId)) }
+        state.update { it.copy(focusRequest = EditorFocusRequest(span, requestId, takeFocus)) }
     }
+
+    /**
+     * Visor de árboles: marca [span] en el editor y lo desplaza a la vista sin quitarle el foco al visor
+     * (`null` quita la marca).
+     */
+    fun highlightInCode(span: SourceSpan?) {
+        if (span == state.value.codeHighlight) return
+        state.update { it.copy(codeHighlight = span) }
+        if (span != null) focusOn(span, takeFocus = false)
+    }
+
+    /**
+     * Estado de los visores de árboles (plegado, vista, recorrido) del reporte actual. Vive aquí para conservarse al
+     * cambiar de pestaña, al pasar a pantalla completa o al volver del Inicio.
+     */
+    val treeViewers: TreeViewerRegistry = TreeViewerRegistry()
 
     /** El editor llama a esto después de mover la selección. */
     fun onFocusRequestHandled(requestId: Long) {
@@ -324,7 +349,8 @@ class CompilerViewModel(
                 } else {
                     deriveSessionTitle(report.tokens) ?: UNTITLED_SESSION_TITLE
                 },
-                isErrorPanelExpanded = current.isErrorPanelExpanded || report.errors.isNotEmpty()
+                isErrorPanelExpanded = current.isErrorPanelExpanded || report.errors.isNotEmpty(),
+                codeHighlight = null
             )
         }
         return report
@@ -338,7 +364,8 @@ class CompilerViewModel(
                 stepByStep = StepByStepState(index),
                 phases = buildPhaseStates(report, index),
                 selectedTab = phase.resultTab(),
-                treeKind = treeKindFor(phase, current.treeKind)
+                treeKind = treeKindFor(phase, current.treeKind),
+                codeHighlight = null
             )
         }
     }

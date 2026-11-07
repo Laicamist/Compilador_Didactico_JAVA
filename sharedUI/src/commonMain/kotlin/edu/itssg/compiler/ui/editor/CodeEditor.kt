@@ -98,6 +98,8 @@ import kotlin.math.roundToInt
  * @param tokens Tokens del resaltado (pueden llegar con unos ms de atraso respecto del texto).
  * @param diagnostics Errores a marcar; sus rangos ya corresponden al texto del editor.
  * @param maxLength Límite de caracteres de `CompilerSecurityConfig`; un cambio que lo exceda se descarta.
+ * @param codeHighlight Fragmento marcado desde el visor de árboles (nodo elegido o paso del recorrido), con fondo del
+ *   color de [codeHighlightColor]; no mueve el cursor ni la selección.
  */
 @Composable
 fun CodeEditor(
@@ -112,7 +114,9 @@ fun CodeEditor(
     onTextTooLong: () -> Unit,
     focusRequest: EditorFocusRequest?,
     onFocusRequestHandled: (Long) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    codeHighlight: TextRange? = null,
+    codeHighlightColor: Color = JAutomataTheme.colors.syntactic
 ) {
     val colors = JAutomataTheme.colors
     val density = LocalDensity.current
@@ -455,9 +459,16 @@ fun CodeEditor(
     val currentOnFocusHandled by rememberUpdatedState(onFocusRequestHandled)
     LaunchedEffect(focusRequest?.requestId) {
         val request = focusRequest ?: return@LaunchedEffect
-        selectRange(request.span.start.offset, request.span.end.offset)
-        runCatching { editorFocus.requestFocus() }
-        currentOnFocusHandled(request.requestId)
+        if (request.takeFocus) {
+            selectRange(request.span.start.offset, request.span.end.offset)
+            runCatching { editorFocus.requestFocus() }
+            currentOnFocusHandled(request.requestId)
+        } else {
+            // Visor de árboles: solo llevar el fragmento a la vista (el cursor y el foco no se tocan). Se lanza en el
+            // alcance del editor porque marcar la petición como atendida reinicia este efecto.
+            scope.launch { reveal(request.span.start.offset, animate = true) }
+            currentOnFocusHandled(request.requestId)
+        }
     }
 
     //Interfaz
@@ -655,6 +666,18 @@ fun CodeEditor(
                             if (caret <= result.layoutInput.text.length) {
                                 val line = result.getLineForOffset(caret)
                                 drawLineBackground(result, line, colors.currentLine)
+                            }
+                            codeHighlight?.let { range ->
+                                val length = result.layoutInput.text.length
+                                val start = range.min.coerceIn(0, length)
+                                val end = range.max.coerceIn(start, length)
+                                if (end > start) {
+                                    drawPath(result.getPathForRange(start, end), codeHighlightColor.copy(alpha = 0.28f))
+                                } else {
+                                    // Producción vacía (ε) o token faltante: una barra en la posición.
+                                    val rect = result.getCursorRect(start)
+                                    drawRect(codeHighlightColor, Offset(rect.left - 1.dp.toPx(), rect.top), Size(3.dp.toPx(), rect.height))
+                                }
                             }
                             for ((line, list) in diagnosticsByLine) {
                                 val index = line - 1

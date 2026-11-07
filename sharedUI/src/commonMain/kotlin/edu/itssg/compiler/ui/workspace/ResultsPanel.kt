@@ -33,12 +33,15 @@ import edu.itssg.compiler.ui.tables.IntermediateCodePanel
 import edu.itssg.compiler.ui.tables.SymbolsPanel
 import edu.itssg.compiler.ui.tables.TokensPanel
 import edu.itssg.compiler.ui.theme.JAutomataFonts
+import edu.itssg.compiler.ui.tree.TreePanel
 import edu.itssg.compiler.ui.theme.JAutomataTheme
 import edu.itssg.compiler.ui.viewmodel.CompilerViewModel
 
 /**
- * Panel de resultados del espacio de trabajo (Paso 3.3): pestañas Tokens, Símbolos, Árbol y Código intermedio.
- * La pestaña Árbol muestra un aviso hasta el Paso 3.4 (visor interactivo).
+ * Panel de resultados del espacio de trabajo: pestañas Tokens, Símbolos (Paso 3.3), Árbol (Paso 3.4: visor interactivo
+ * con recorrido animado) y Código intermedio.
+ *
+ * @param animationsEnabled Ajuste "Animaciones": si está apagado, el visor de árboles se mueve sin transiciones.
  *
  * Mientras se compila de nuevo, se sigue mostrando el resultado anterior (la barra de progreso indica el trabajo).
  */
@@ -46,6 +49,7 @@ import edu.itssg.compiler.ui.viewmodel.CompilerViewModel
 internal fun ResultsPanel(
     state: CompilerUiState,
     viewModel: CompilerViewModel,
+    animationsEnabled: Boolean,
     onMessage: (text: String, isError: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -94,10 +98,18 @@ internal fun ResultsPanel(
                     modifier = contentModifier
                 )
 
-                ResultTab.TREE -> Placeholder(
-                    title = "Árbol · ${state.treeKind.displayName}",
-                    detail = "${state.phaseState(CompilerPhase.SYNTACTIC).summary}\n\n" +
-                            "El visor interactivo (zoom, desplazamiento y nodos plegables) se incorpora en el Paso 3.4.",
+                ResultTab.TREE -> TreePanel(
+                    report = report,
+                    registry = viewModel.treeViewers,
+                    treeKind = state.treeKind,
+                    onTreeKindChange = viewModel::onTreeKindSelected,
+                    semanticAvailable = state.isRevealed(CompilerPhase.SEMANTIC),
+                    executionBlockedReason = executionWalkthroughBlockReason(state, report),
+                    isStale = state.isReportStale,
+                    animationsEnabled = animationsEnabled,
+                    onHighlight = viewModel::highlightInCode,
+                    onRevealInCode = { span -> viewModel.focusOn(span, takeFocus = true) },
+                    onMessage = onMessage,
                     modifier = contentModifier
                 )
 
@@ -159,6 +171,18 @@ private fun ResultTabs(state: CompilerUiState, report: CompilationReport?, onTab
             }
         }
     }
+}
+
+/**
+ * El recorrido de ejecución (Cuádruplos / 3 Direcciones) sigue la misma regla que el código intermedio: necesita una
+ * compilación sin errores y, en Paso a paso, haber llegado a la fase de Código intermedio.
+ */
+private fun executionWalkthroughBlockReason(state: CompilerUiState, report: CompilationReport): String? = when {
+    report.intermediateCodeBlockReason() != null ->
+        "El recorrido de la ejecución necesita una compilación sin errores, igual que el código intermedio."
+    !state.isRevealed(CompilerPhase.INTERMEDIATE_CODE) ->
+        "El recorrido de la ejecución se habilita al llegar a Código intermedio en Paso a paso."
+    else -> null
 }
 
 private fun ResultTab.phase(): CompilerPhase = when (this) {

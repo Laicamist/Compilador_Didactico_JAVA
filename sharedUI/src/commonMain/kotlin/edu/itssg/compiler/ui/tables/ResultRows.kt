@@ -319,7 +319,8 @@ data class IrComparison(
     val reductionPercent: Int get() = if (originalCount == 0) 0 else removedCount * 100 / originalCount
 }
 
-private class IrLine(val step: Int, val text: String, val note: String?)
+/** @param sourceStep En Tres Direcciones, renglón de Cuádruplos del que sale la instrucción (para ubicar su código). */
+private class IrLine(val step: Int, val text: String, val note: String?, val sourceStep: Int? = null)
 
 /**
  * Indicación del autor de las reglas del compilador: la optimización se aplica a Triplos y Cuádruplos; el código de
@@ -377,7 +378,7 @@ fun buildIrComparison(report: CompilationReport, format: IrFormatKind, optimizat
 
     val rows: List<IrComparisonRow> = if (!includeOptimized) {
         originalLines.map { line ->
-            IrComparisonRow(line.step, line.text, line.note, null, emptyList(), false, null, null, null, stepSpans[line.step])
+            IrComparisonRow(line.step, line.text, line.note, null, emptyList(), false, null, null, null, stepSpans[line.sourceStep ?: line.step])
         }
     } else if (aligned) {
         val optimizedPosition = keptSteps.withIndex().associate { (i, step) -> step to i }
@@ -452,7 +453,7 @@ private fun threeAddressLine(index: Int, instruction: edu.itssg.compiler.core.ir
     } else {
         "${instruction.targetLabel}. (${instruction.val1}, ${instruction.operator}, ${instruction.val2})"
     }
-    return IrLine(index, core, instruction.freeNote?.takeIf { it.isNotBlank() })
+    return IrLine(index, core, instruction.freeNote?.takeIf { it.isNotBlank() }, instruction.sourceStep)
 }
 
 /** Renglón del código intermedio (`evaluationStepNumber`) → fragmento del código que lo genera. */

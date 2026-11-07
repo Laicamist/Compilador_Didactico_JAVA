@@ -72,8 +72,12 @@ data class StepByStepState(val currentIndex: Int) {
 /**
  * Pide al editor seleccionar y desplazarse a [span] (clic en una fila de una tabla, un error o un nodo del árbol).
  * [requestId] distingue dos clics seguidos sobre la misma fila.
+ *
+ * @property takeFocus `true`: el editor selecciona el fragmento y toma el foco (en el teléfono se cambia a la pestaña
+ *   Editor). `false` (visor de árboles): el editor solo se desplaza hasta el fragmento, sin mover el cursor ni quitarle
+ *   el foco al visor; el fragmento se marca con [CompilerUiState.codeHighlight].
  */
-data class EditorFocusRequest(val span: SourceSpan, val requestId: Long)
+data class EditorFocusRequest(val span: SourceSpan, val requestId: Long, val takeFocus: Boolean = true)
 
 /** Aviso breve para la interfaz (snackbar). */
 data class UiMessage(val text: String, val isError: Boolean = false)
@@ -95,6 +99,8 @@ const val UNTITLED_SESSION_TITLE: String = "Sin título"
  *   el dueño del texto y solo informa cada cambio con `onSourceChange`.
  * @property tableQueries Búsqueda, filtros y orden de cada tabla (Tokens, Símbolos, Errores); se conservan al
  *   cambiar de pestaña y al volver a compilar.
+ * @property codeHighlight Fragmento del código que se marca en el editor sin seleccionarlo (nodo del árbol elegido o
+ *   paso del recorrido animado). Corresponde a [compiledSource]; se borra al compilar o abrir otro documento.
  */
 data class CompilerUiState(
     val sessionTitle: String = UNTITLED_SESSION_TITLE,
@@ -116,7 +122,8 @@ data class CompilerUiState(
     val isSaving: Boolean = false,
     val lastSavedSource: String? = null,
     val documentVersion: Int = 0,
-    val tableQueries: Map<DataTableKind, TableQuery> = emptyMap()
+    val tableQueries: Map<DataTableKind, TableQuery> = emptyMap(),
+    val codeHighlight: SourceSpan? = null
 ) {
     /** El código cambió después de compilar: los resultados en pantalla ya no corresponden al editor. */
     val isReportStale: Boolean

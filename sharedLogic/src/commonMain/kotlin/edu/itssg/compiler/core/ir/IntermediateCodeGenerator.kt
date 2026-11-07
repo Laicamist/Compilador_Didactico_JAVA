@@ -150,11 +150,14 @@ class IntermediateCodeGenerator {
 
         fun freeTemps(): List<Int> = (1..MAX_TEMPS).filter { tempHolder[it] == null }
 
+        /** Paso que ocupa cada temporal (T1..T3) en este momento, o `null` si está libre. */
+        fun registerSnapshot(): List<Int?> = (1..MAX_TEMPS).map { tempHolder[it] }
+
         /** Temporal ocupado por un operando de [op] que se consume por última vez en [op]. */
         fun reusableTemp(op: IrOperation): Int? = (1..MAX_TEMPS).firstOrNull { t ->
             val holder = tempHolder[t]
             holder != null && op.operands.any { it is IrOperand.StepRef && it.step == holder } &&
-                (lastUse[holder] ?: 0) <= op.step
+                    (lastUse[holder] ?: 0) <= op.step
         }
 
         fun ready(op: IrOperation): Boolean =
@@ -209,7 +212,7 @@ class IntermediateCodeGenerator {
             for (t in 1..MAX_TEMPS) {
                 val holder = tempHolder[t] ?: continue
                 val consumedNow = op.operands.any { it is IrOperand.StepRef && it.step == holder } &&
-                    (lastUse[holder] ?: 0) <= op.step
+                        (lastUse[holder] ?: 0) <= op.step
                 val unused = holder == op.step && lastUse[holder] == null && holder != finalStep
                 if (consumedNow || unused) {
                     tempHolder[t] = null
@@ -222,7 +225,11 @@ class IntermediateCodeGenerator {
             if (freed.isNotEmpty()) {
                 notes += if ((1..MAX_TEMPS).all { tempHolder[it] == null }) "free all" else "free ${freed.joinToString(", ")}"
             }
-            out += instruction.copy(freeNote = notes.joinToString("  ").ifEmpty { null })
+            out += instruction.copy(
+                freeNote = notes.joinToString("  ").ifEmpty { null },
+                sourceStep = op.step,
+                registersAfter = registerSnapshot()
+            )
             return true
         }
 
@@ -256,7 +263,10 @@ class IntermediateCodeGenerator {
                     index = out.size + 1,
                     targetLabel = "P${op.step}",
                     isDirectAssignmentOrReturn = true,
-                    freeNote = "pendiente"
+                    freeNote = "pendiente",
+                    sourceStep = op.step,
+                    isPending = true,
+                    registersAfter = registerSnapshot()
                 )
             }
         }

@@ -149,6 +149,15 @@ data class QuadrupleInstruction(
         return if (!annotation.isNullOrBlank()) "$base  $annotation" else base
     }
 }
+/**
+ * Renglón de Tres Direcciones.
+ *
+ * Datos para el recorrido animado del visor de árboles (Paso 3.4); no cambian [formatAcademic]:
+ * @property sourceStep Renglón de Triplos/Cuádruplos (`evaluationStepNumber` del árbol) del que sale esta instrucción.
+ * @property isPending `true` en el renglón `Pn` que marca una operación que se dejó pendiente por falta de temporales.
+ * @property registersAfter Estado de los temporales T1, T2, T3 al terminar este renglón: el paso que ocupa cada uno o
+ *   `null` si está libre (ya aplicadas las liberaciones `free Tn` / `free all`).
+ */
 data class ThreeAddressInstruction(
     val index: Int,
     val targetLabel: String, // Ej. "T1", "T2", "T3", o "ID2 = T3", "ID4 RTN T1"
@@ -156,7 +165,10 @@ data class ThreeAddressInstruction(
     val operator: String? = null,
     val val2: String? = null,
     val isDirectAssignmentOrReturn: Boolean = false,
-    val freeNote: String? = null
+    val freeNote: String? = null,
+    val sourceStep: Int? = null,
+    val isPending: Boolean = false,
+    val registersAfter: List<Int?> = emptyList()
 ) {
     fun formatAcademic(): String {
         val core = if (isDirectAssignmentOrReturn) {
