@@ -34,7 +34,7 @@ data class CompilerError(
 }
 
 /**
- * Plantillas de justificación, redactadas como en las tablas de errores de la Unidad 1:
+ * Plantillas de justificación:
  * - Léxico: "En Java no existe ningún TOKEN para el @, por lo tanto el símbolo no es válido para el lenguaje"
  * - Sintáctico: "No cumple la regla CLASE, se esperaba un LLA y se encuentra un ID" + la producción de la GLC v7
  * - Semántico: "El ID length no se encuentra como atributo en la clase String de Java"
@@ -105,6 +105,9 @@ object AcademicErrorTemplates {
 
     fun argumentCountMismatch(method: String, expected: Int, received: Int): String =
         "El método $method recibe $expected parámetro(s) y se le envían $received"
+
+    fun javaArgumentCountMismatch(owner: String, method: String, expected: String, received: Int): String =
+        "El método $method de la clase $owner de Java recibe $expected argumento(s) y se le envían $received"
 
     fun argumentTypeMismatch(method: String, paramName: String, paramType: String, argType: String): String =
         "El TD del argumento ($argType) es incompatible con el parámetro $paramName ($paramType) del método $method"

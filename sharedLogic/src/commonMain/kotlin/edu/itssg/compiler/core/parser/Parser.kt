@@ -33,7 +33,8 @@ data class ParserResult(
  *
  * ## Consideraciones de la GLC v7
  * - No acepta herencia ni implementación (`extends`, `implements`).
- * - Solo importación simple (`import a.B;`).
+ * - Importación simple (`import a.B;`) y, como extensión, con varios niveles (`import java.util.Scanner;`,
+ *   `import java.util.*;`).
  * - No hay regla para crear arreglos (`int[] a`, `new int[3]`, `args[0]`).
  * - No permite declaración de variables en modo lista (`int a, b;`).
  * - No permite métodos ni variables estáticos (excepto `main`).
@@ -155,7 +156,10 @@ class Parser(
         return node to packageId
     }
 
-    /** `IMPORTS ::= IMPORTS IMPORT | ε` ; `IMPORT ::= IMP ID CA ID FI`. */
+    /**
+     * `IMPORTS ::= IMPORTS IMPORT | ε` ; `IMPORT ::= IMP ID CA ID FI`, con la extensión `IMPORT ::= IMP ID CA ID
+     * L_IMP FI`, `L_IMP ::= CA ID L_IMP | CA OPA(*) | ε` para `import java.util.Scanner;` e `import java.util.*;`.
+     */
     private fun parseImports(): Pair<SyntaxTreeNode.NonTerminal, List<ImportDecl>> {
         val imports = ArrayList<ImportDecl>()
         val node = rule("IMPORTS") {
@@ -170,11 +174,20 @@ class Parser(
                         val pkg = expect(ID, "IMPORT")
                         c += pkg
                         c += expect(CA, "IMPORT")
-                        val member = expect(ID, "IMPORT")
+                        var member = if (check(OPA) && cursor.peek().lexeme == "*") term(cursor.advance())
+                        else expect(ID, "IMPORT")
                         c += member
-                        if (check(CA)) {
-                            consideration("IMPORT", "solo se permite la importación simple (IMP ID CA ID FI)", cursor.peek())
-                            while (check(CA) || check(ID) || (check(OPA) && cursor.peek().lexeme == "*")) cursor.advance()
+                        // Extensión: más niveles (java.util.Scanner) o comodín (java.util.*).
+                        var wildcard = (member as? SyntaxTreeNode.Terminal)?.token?.lexeme == "*"
+                        while (!wildcard && check(CA)) {
+                            c += term(cursor.advance())
+                            member = if (check(OPA) && cursor.peek().lexeme == "*") {
+                                wildcard = true
+                                term(cursor.advance())
+                            } else {
+                                expect(ID, "IMPORT")
+                            }
+                            c += member
                         }
                         c += expectFi("IMPORT")
                         imports += ImportDecl(
@@ -1200,6 +1213,11 @@ class Parser(
                     }
                     else -> wrap("EXP", listOf(wrap("VAL", listOf(term(tok))))) to NameExpr(tok)
                 }
+            }
+            tok.category == STR && peekCat(1) == CA -> {
+                // Extensión CLA ::= STR: método estático de la clase String (`String.valueOf(5)`)
+                cursor.advance()
+                parseAccessTail(wrap("CLA", listOf(term(tok))), NameExpr(tok))
             }
             tok.category == NW -> {
                 // Extensión CLA ::= NW ID PA ARGS PC

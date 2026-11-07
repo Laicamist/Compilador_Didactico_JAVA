@@ -61,8 +61,21 @@ class IntermediateCodeGenerator {
                 step, IrOpKind.UNARY, IrOperand.None, node.primaryLabel, operandOf(c0, stepOfNode), result
             )
             SemanticNodeKind.MEMBER_ACCESS -> {
-                val kind = if (c0?.resolvedType == SemanticDataType.CLASS_INSTANCE) IrOpKind.ACCESS_CLASS else IrOpKind.ACCESS_JAVA
-                IrOperation(step, kind, operandOf(c0, stepOfNode), ".", operandOf(node.children.lastOrNull(), stepOfNode), result)
+                val member = node.children.lastOrNull()
+                val callName = member?.callName
+                // Los métodos de Java (Scanner, String, Math…) son ACCESS_JAVA aunque el objeto sea una instancia.
+                val kind = if (callName == null && c0?.resolvedType == SemanticDataType.CLASS_INSTANCE) {
+                    IrOpKind.ACCESS_CLASS
+                } else {
+                    IrOpKind.ACCESS_JAVA
+                }
+                // Método de Java con argumentos: (s, ., charAt(0), 'H'), (Integer, ., parseInt([2]), y)
+                val memberOperand = if (member != null && callName != null && stepOfNode[member.id] == null) {
+                    IrOperand.Call(callName, member.children.map { operandOf(it, stepOfNode) })
+                } else {
+                    operandOf(member, stepOfNode)
+                }
+                IrOperation(step, kind, operandOf(c0, stepOfNode), ".", memberOperand, result)
             }
             SemanticNodeKind.METHOD_RETURN -> IrOperation(
                 step, IrOpKind.RETURN, IrOperand.Symbol(node.secondaryLabel ?: "RTN"), "RTN", operandOf(c0, stepOfNode), result
@@ -125,6 +138,7 @@ class IntermediateCodeGenerator {
 
         fun render(operand: IrOperand): String = when (operand) {
             is IrOperand.StepRef -> location[operand.step] ?: operand.display
+            is IrOperand.Call -> operand.args.joinToString(",", "${operand.name}(", ")") { render(it) }
             else -> operand.display
         }
 

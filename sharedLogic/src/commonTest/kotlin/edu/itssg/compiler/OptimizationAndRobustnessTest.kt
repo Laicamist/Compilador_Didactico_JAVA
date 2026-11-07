@@ -43,7 +43,7 @@ class OptimizationAndRobustnessTest {
         assertEquals("PC", log.getValue(1).code)  // (ID3, =, 3.14) → PC
         assertEquals("FOD", log.getValue(2).code) // (180.0, /, 3.14) solo es constante gracias a PC
         val optimized = r.optimizationResult.optimizedBundle.quadruples.map { it.formatAcademic() }
-        assertEquals("1. (Math, ., random(), X.0)", optimized[0])
+        assertEquals("1. (Math, ., random(), x)", optimized[0])
         assertTrue(optimized[1].startsWith("2. (57.3248, *, [1]"), optimized.toString())
     }
 
@@ -60,9 +60,9 @@ class OptimizationAndRobustnessTest {
             """.trimIndent()
         )
         val quads = r.intermediateCode.quadruples.map { it.formatAcademic() }
-        assertEquals("4. ([2], +, [3], 10+X.0)", quads[3])
-        assertEquals("7. ([5], +, [6], 20+X.0)", quads[6])
-        assertEquals("8. ([7], +, 8, 28+X.0)", quads[7])
+        assertEquals("4. ([2], +, [3], x+10.0)", quads[3])
+        assertEquals("7. ([5], +, [6], x+20.0)", quads[6])
+        assertEquals("8. ([7], +, 8, x+28.0)", quads[7])
         val log = r.optimizationResult.appliedOptimizations.associateBy { it.stepNumber }
         assertEquals("FO", log.getValue(3).code)
         assertEquals("RS", log.getValue(6).code)
@@ -215,7 +215,7 @@ class OptimizationAndRobustnessTest {
         val fourth = table[3]
         assertTrue(fourth.isFinal && !fourth.isUnchanged)
         assertEquals(3, fourth.modifiedNumber)
-        assertEquals("([2], +, 10, 10+X.0)", fourth.modifiedQuadruple)
+        assertEquals("([2], +, 10, x+10.0)", fourth.modifiedQuadruple)
         assertEquals(5, fourth.affectedStep)
         // RS se marca con el cuádruplo que repite: RS[3].
         val rs = table[5]

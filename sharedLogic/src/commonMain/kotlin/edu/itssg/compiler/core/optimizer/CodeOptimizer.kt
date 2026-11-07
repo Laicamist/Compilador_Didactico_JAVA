@@ -10,6 +10,7 @@ import edu.itssg.compiler.core.ir.OptimizationTag
 import edu.itssg.compiler.core.ir.QuadrupleInstruction
 import edu.itssg.compiler.core.ir.TripleInstruction
 import edu.itssg.compiler.core.ir.displayCodeFor
+import edu.itssg.compiler.core.ir.mapOperands
 import edu.itssg.compiler.core.semantic.EvaluatedValue
 
 /**
@@ -160,7 +161,7 @@ class CodeOptimizer(
         val originalByStep = original.associateBy { it.step }
         val seenExpressions = HashMap<String, Int>() // expresión (ya sustituida) → primer renglón que la calcula
         for (op in original) {
-            val modified = op.copy(arg1 = resolve(op.arg1), arg2 = resolve(op.arg2))
+            val modified = op.copy(arg1 = op.arg1.mapOperands(::resolve), arg2 = op.arg2.mapOperands(::resolve))
             current[op.step] = modified
             val decision = decide(op, modified, seenExpressions, originalByStep)
             if (decision != null) {
@@ -237,7 +238,11 @@ class CodeOptimizer(
             return if (r is IrOperand.StepRef) newNumber[r.step]?.let { IrOperand.StepRef(it) } ?: r else r
         }
         val optimizedOps = survivors.map { op ->
-            op.copy(step = newNumber.getValue(op.step), arg1 = renumber(op.arg1), arg2 = renumber(op.arg2))
+            op.copy(
+                step = newNumber.getValue(op.step),
+                arg1 = op.arg1.mapOperands(::renumber),
+                arg2 = op.arg2.mapOperands(::renumber)
+            )
         }
         //Tabla completa de la U3 (todos los renglones)
         // Número que toma cada renglón: los finales, su nuevo número; los eliminados, el que tendrían en ese punto.
@@ -254,7 +259,11 @@ class CodeOptimizer(
             val decision = eliminated[op.step]
             val number = tentativeNumber.getValue(op.step)
             val adapted = current.getValue(op.step).let {
-                it.copy(step = number, arg1 = renumberForTable(it.arg1), arg2 = renumberForTable(it.arg2))
+                it.copy(
+                    step = number,
+                    arg1 = it.arg1.mapOperands(::renumberForTable),
+                    arg2 = it.arg2.mapOperands(::renumberForTable)
+                )
             }
             val isFinal = decision == null
             val originalQuad = op.toQuadruple().formatAcademic().substringAfter(". ")
@@ -358,10 +367,14 @@ class CodeOptimizer(
         )
     }
 
-    /** En un acceso de Java el miembro (`length()`) es un nombre, no un valor: basta con que el objeto sea constante. */
+    /**
+     * En un acceso de Java el miembro (`length()`, `charAt(0)`) es un nombre, no un valor: basta con que el objeto sea
+     * constante (el resultado también debe serlo). `random()` nunca es constante.
+     */
     private fun IrOperand.isFoldable(): Boolean = when (this) {
         is IrOperand.Constant -> value.isConstant
-        is IrOperand.Symbol -> text.endsWith("()") && text != "random()"
+        is IrOperand.Symbol -> (text.endsWith("()") && text != "random()") || text in STATIC_JAVA_CLASSES
+        is IrOperand.Call -> name !in NON_DETERMINISTIC_CALLS && args.all { it.isFoldable() }
         else -> false
     }
 
@@ -369,7 +382,7 @@ class CodeOptimizer(
         IrOperand.Constant(value.formatForTreeAndQuadruple(), value)
 
     private fun isDeterministic(op: IrOperation): Boolean =
-        op.operands.none { it is IrOperand.Symbol && it.text == "random()" }
+        op.operands.none { (it is IrOperand.Symbol && it.text == "random()") || (it is IrOperand.Call && it.name == "random") }
 
     /** Claves de búsqueda de la expresión (dos órdenes si es conmutativa: `a*b` = `b*a`). */
     private fun expressionKeys(op: IrOperation): List<String> {
@@ -377,6 +390,7 @@ class CodeOptimizer(
             is IrOperand.Constant -> if (o.value.isConstant) "C:${o.value}" else "T:${o.text}"
             is IrOperand.StepRef -> "R:${o.step}"
             is IrOperand.Symbol -> "S:${o.text}"
+            is IrOperand.Call -> "F:${o.name}(${o.args.joinToString(",") { k(it) }})"
             IrOperand.None -> "-"
         }
         val direct = "${op.kind}|${op.operator}|${k(op.arg1)}|${k(op.arg2)}"
@@ -443,3 +457,9 @@ class CodeOptimizer(
         return live
     }
 }
+
+/** Clases de Java que se usan sin objeto (`Math.abs(-5)` es constante si sus argumentos lo son). */
+private val STATIC_JAVA_CLASSES = setOf("Math", "Integer", "Double", "Float", "Long", "Boolean", "String")
+
+/** Llamadas que pueden dar un resultado distinto cada vez (no se pliegan ni se reutilizan). */
+private val NON_DETERMINISTIC_CALLS = setOf("random")

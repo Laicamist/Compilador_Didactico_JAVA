@@ -11,9 +11,12 @@ package edu.itssg.compiler.core.parser
  * ## Extensiones necesarias para los ejemplos de clase
  * - `CLA::= ... | NW ID PA ARGS PC` → `new Uno().cuatro('@')`, `new Nueva().total`.
  * - `CLA::= ... | PA EXP PC` → `("1"+c).length()` (ejemplo `Lunes`).
+ * - `CLA::= ... | STR` → métodos estáticos de `String`: `String.valueOf(25)` (`String` es el token STR, no un ID).
  * - `EXP::= ... | PA TD PC EXP` (conversión) → `(char)(b + ...)`, `(float)(dos+tres*dos)`, `(int)(...)`.
  * - `ARG::= EXP | CO EXP` → argumentos que son expresiones.
  * - `INST::= ... | ACC FI | EXPU FI` → llamadas e incrementos como instrucción terminan en `;`.
+ * - `IMPORT::= IMP ID CA ID L_IMP FI`, `L_IMP::= CA ID L_IMP | CA OPA(*) | ε` → `import java.util.Scanner;`,
+ *   `import java.util.*;` (la GLC solo define la importación simple `IMP ID CA ID FI`).
  * - `SOUT::=ID CA ID CA ID PA EXP PC FI` → `System.out.println(...)` (STATMNT la usa pero no la define).
  * - `EXPU::= OPU VAL | VAL OPU | OPA VAL` → `a++` y el signo negativo `-5`.
  * - Cuerpos de `IFEL`, `WHILE`, `DO` y `FOR` como `LLA CUERPO LLC` (reglas moradas no verificadas).
@@ -24,7 +27,8 @@ object GlcV7 {
         "JAVA" to "JAVA::=DPACKAGE IMPORTS CLASE",
         "DPACKAGE" to "DPACKAGE::=PCK ID FI",
         "IMPORTS" to "IMPORTS::=IMPORTS IMPORT|ε",
-        "IMPORT" to "IMPORT::=IMP ID CA ID FI",
+        "IMPORT" to "IMPORT::=IMP ID CA ID FI|IMP ID CA ID L_IMP FI",
+        "L_IMP" to "L_IMP::=CA ID L_IMP|CA OPA|ε",
         "CLASE" to "CLASE::=MA CL ID LLA CONTENT LLC",
         "DECS_GLOB" to "DECS_GLOB::=D_GLOB DECS_GLOB|ε",
         "D_GLOB" to "D_GLOB::=MAO TY ID FI|MAO TY ID ODA EXP FI|OBJ",

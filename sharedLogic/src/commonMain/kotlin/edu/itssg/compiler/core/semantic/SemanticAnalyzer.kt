@@ -659,14 +659,18 @@ class SemanticAnalyzer(
     private fun checkAccess(expr: AccessExpr, scope: Scope, fieldLimit: Int?): TypeInfo {
         val member = expr.member.lexeme
         val target = expr.target
-        // Métodos de Java sin objeto: Math.random()
-        if (target is NameExpr && target.token.lexeme == "Math" && resolveName(target.token, scope, fieldLimit) == null) {
-            expr.args?.forEach { checkExpr(it, scope, fieldLimit) }
+        // Métodos de Java sin objeto: Math.random(), Integer.parseInt(...), Double.parseDouble(...)
+        if (target is NameExpr && target.token.lexeme in JavaApi.STATIC_CLASSES &&
+            resolveName(target.token, scope, fieldLimit) == null
+        ) {
+            val cls = target.token.lexeme
+            val argInfos = expr.args?.map { checkExpr(it, scope, fieldLimit) }
+            val spec = JavaApi.staticMethod(cls, member)
             return when {
-                member == "PI" && expr.args == null -> TypeInfo(SemanticDataType.DOUBLE)
-                member in MATH_METHODS && expr.args != null -> TypeInfo(SemanticDataType.DOUBLE)
+                expr.args == null && JavaApi.staticField(cls, member) != null -> TypeInfo(SemanticDataType.DOUBLE)
+                expr.args != null && spec != null -> javaMethodType(spec, cls, expr, argInfos.orEmpty())
                 else -> {
-                    semanticError(expr.member, AcademicErrorTemplates.memberNotFound(member, "Math"))
+                    semanticError(expr.member, AcademicErrorTemplates.memberNotFound(member, cls))
                     TypeInfo(SemanticDataType.UNKNOWN)
                 }
             }
@@ -683,8 +687,8 @@ class SemanticAnalyzer(
                 TypeInfo(SemanticDataType.UNKNOWN)
             }
             targetInfo.type == SemanticDataType.STRING -> {
-                expr.args?.forEach { checkExpr(it, scope, fieldLimit) }
-                val method = STRING_METHODS[member]
+                val argInfos = expr.args?.map { checkExpr(it, scope, fieldLimit) }
+                val method = JavaApi.STRING_METHODS[member]
                 when {
                     expr.args == null -> {
                         semanticError(expr.member, AcademicErrorTemplates.stringAttributeNotFound(member))
@@ -694,7 +698,18 @@ class SemanticAnalyzer(
                         semanticError(expr.member, AcademicErrorTemplates.stringMethodNotFound(member))
                         TypeInfo(SemanticDataType.UNKNOWN)
                     }
-                    else -> TypeInfo(method)
+                    else -> javaMethodType(method, "String", expr, argInfos.orEmpty())
+                }
+            }
+            targetInfo.type == SemanticDataType.CLASS_INSTANCE && targetInfo.className == "Scanner" -> {
+                val argInfos = expr.args?.map { checkExpr(it, scope, fieldLimit) }
+                val method = JavaApi.SCANNER_METHODS[member]
+                when {
+                    expr.args == null || method == null -> {
+                        semanticError(expr.member, AcademicErrorTemplates.memberNotFound(member, "Scanner"))
+                        TypeInfo(SemanticDataType.UNKNOWN)
+                    }
+                    else -> javaMethodType(method, "Scanner", expr, argInfos.orEmpty())
                 }
             }
             targetInfo.type == SemanticDataType.CLASS_INSTANCE && targetInfo.className == className -> {
@@ -738,6 +753,18 @@ class SemanticAnalyzer(
                 TypeInfo(SemanticDataType.UNKNOWN)
             }
         }
+    }
+
+    /** Tipo de retorno de un método de Java; reporta si la cantidad de argumentos no corresponde. */
+    private fun javaMethodType(spec: JavaApi.MethodSpec, owner: String, expr: AccessExpr, argInfos: List<TypeInfo>): TypeInfo {
+        if (!spec.acceptsArgCount(argInfos.size)) {
+            semanticError(
+                expr.member,
+                AcademicErrorTemplates.javaArgumentCountMismatch(owner, spec.name, spec.expectedArgsText, argInfos.size)
+            )
+            return TypeInfo(SemanticDataType.UNKNOWN)
+        }
+        return TypeInfo(spec.returnType(argInfos.map { it.type }))
     }
 
     private fun checkCallArguments(method: Binding, at: Token, args: List<Expr>, scope: Scope, fieldLimit: Int?) {
@@ -962,8 +989,8 @@ class SemanticAnalyzer(
                     val l = expand(expr.left, frame)
                     val r = expand(expr.right, frame)
                     val op = expr.operator.lexeme
-                    val value = ValueOps.binary(op, l.evaluatedValue, r.evaluatedValue)
                     val type = SemanticDataType.binaryResultType(l.resolvedType, op, r.resolvedType)
+                    val value = unknownResult(op, l, r, ValueOps.binary(op, l.evaluatedValue, r.evaluatedValue), type)
                     SemanticAstNode(
                         id = id(),
                         kind = SemanticNodeKind.BINARY_OPERATOR,
@@ -1124,17 +1151,37 @@ class SemanticAnalyzer(
         private fun expandAccess(expr: AccessExpr, frame: Frame): SemanticAstNode {
             val member = expr.member.lexeme
             val target = expr.target
-            if (target is NameExpr && target.token.lexeme == "Math" && tokenBinding[target.token.span.start.offset] == null) {
-                val value: EvaluatedValue = if (member == "random") EvaluatedValue.SymbolicVal()
-                else if (member == "PI" && expr.args == null) EvaluatedValue.DoubleVal(kotlin.math.PI)
-                else EvaluatedValue.UnknownVal
-                val mathLeaf = leaf(SemanticNodeKind.IDENTIFIER_REF, "Math", EvaluatedValue.UnknownVal, target.span)
-                val memberLeaf = leaf(SemanticNodeKind.IDENTIFIER_REF, if (expr.args != null) "$member()" else member,
-                    value, expr.member.span, type = SemanticDataType.DOUBLE)
+            // Métodos de Java sin objeto: Math.random(), Integer.parseInt(...), Double.parseDouble(...)
+            if (target is NameExpr && target.token.lexeme in JavaApi.STATIC_CLASSES &&
+                tokenBinding[target.token.span.start.offset] == null
+            ) {
+                val cls = target.token.lexeme
+                val classLeaf = leaf(SemanticNodeKind.IDENTIFIER_REF, cls, EvaluatedValue.UnknownVal, target.span)
+                val args = expr.args?.map { expand(it, frame) }
+                val spec = JavaApi.staticMethod(cls, member)
+                val label = memberLabel(member, expr.args, args)
+                val type: SemanticDataType
+                val value: EvaluatedValue
+                if (args == null) {
+                    value = JavaApi.staticField(cls, member) ?: EvaluatedValue.UnknownVal
+                    type = value.dataType
+                } else {
+                    type = spec?.returnType(args.map { it.resolvedType.takeIf { t -> t != SemanticDataType.UNKNOWN } ?: it.evaluatedValue.dataType })
+                        ?: SemanticDataType.UNKNOWN
+                    value = JavaApi.evaluateStatic(cls, member, args.map { it.evaluatedValue })
+                        ?: if (spec != null && spec.acceptsArgCount(args.size) &&
+                            type != SemanticDataType.UNKNOWN && type != SemanticDataType.VOID
+                        ) {
+                            symbolFor("$cls.$label", type)
+                        } else {
+                            EvaluatedValue.UnknownVal
+                        }
+                }
+                val memberLeaf = memberNode(member, label, value, type, args, expr.member.span)
                 return SemanticAstNode(
                     id = id(), kind = SemanticNodeKind.MEMBER_ACCESS, primaryLabel = ".",
-                    resolvedType = SemanticDataType.DOUBLE, evaluatedValue = value,
-                    children = listOf(mathLeaf, memberLeaf), span = expr.span
+                    resolvedType = type, evaluatedValue = value,
+                    children = listOf(classLeaf, memberLeaf), span = expr.span
                 )
             }
             val memberBinding = tokenBinding[expr.member.span.start.offset]
@@ -1158,25 +1205,114 @@ class SemanticAnalyzer(
                 }
                 return access(targetNode, members, expr.span)
             }
-            // Métodos de String: "LOL".length(), (a+c).length()
-            val targetNode = expand(target, frame)
-            val text = (targetNode.evaluatedValue as? EvaluatedValue.StringVal)?.value
-            val value: EvaluatedValue = when {
-                expr.args == null || text == null -> EvaluatedValue.UnknownVal
-                member == "length" -> EvaluatedValue.IntVal(text.length.toLong())
-                member == "toUpperCase" -> EvaluatedValue.StringVal(text.uppercase())
-                member == "toLowerCase" -> EvaluatedValue.StringVal(text.lowercase())
-                member == "trim" -> EvaluatedValue.StringVal(text.trim())
-                member == "isEmpty" -> EvaluatedValue.BoolVal(text.isEmpty())
-                else -> EvaluatedValue.UnknownVal
+            // Métodos de Java sobre un objeto: "LOL".length(), s.charAt(0), sc.nextLine(), new Scanner(System.in).next()
+            val targetNode = if (target is NewExpr && target.classToken.lexeme != className) {
+                // Como en las láminas: (new Scanner, ., nextLine(), x)
+                leaf(
+                    SemanticNodeKind.IDENTIFIER_REF, "new ${target.classToken.lexeme}",
+                    EvaluatedValue.ObjectVal(target.classToken.lexeme), target.span, type = SemanticDataType.CLASS_INSTANCE
+                )
+            } else {
+                expand(target, frame)
             }
-            val type = STRING_METHODS[member] ?: SemanticDataType.UNKNOWN
-            val memberLeaf = leaf(SemanticNodeKind.IDENTIFIER_REF, if (expr.args != null) "$member()" else member,
-                value, expr.member.span, type = type)
+            val receiverValue = targetNode.evaluatedValue
+            val receiverClass = when {
+                receiverValue is EvaluatedValue.ObjectVal -> receiverValue.className
+                receiverValue is EvaluatedValue.StringVal || targetNode.resolvedType == SemanticDataType.STRING ||
+                    receiverValue.dataType == SemanticDataType.STRING -> "String"
+                else -> null
+            }
+            val args = expr.args?.map { expand(it, frame) }
+            val spec = if (args != null) JavaApi.instanceMethod(receiverClass, member) else null
+            val label = memberLabel(member, expr.args, args)
+            val type = spec?.returnType(args.orEmpty().map { it.resolvedType }) ?: SemanticDataType.UNKNOWN
+            val value: EvaluatedValue = when {
+                spec == null || !spec.acceptsArgCount(args.orEmpty().size) -> EvaluatedValue.UnknownVal
+                else -> JavaApi.evaluateInstance(receiverClass, receiverValue, member, args.orEmpty().map { it.evaluatedValue })
+                    ?: if (type != SemanticDataType.VOID) symbolFor("${valueKey(targetNode)}.$label", type) else EvaluatedValue.UnknownVal
+            }
+            val memberLeaf = memberNode(member, label, value, type, args, expr.member.span)
             return SemanticAstNode(
                 id = id(), kind = SemanticNodeKind.MEMBER_ACCESS, primaryLabel = ".",
                 resolvedType = type, evaluatedValue = value, children = listOf(targetNode, memberLeaf), span = expr.span
             )
+        }
+
+        /**
+         * Miembro de un acceso a Java: atributo (`PI`) o método con sus argumentos como hijos (`charAt(0)`); los
+         * argumentos que son operaciones (`sc.nextLine()` dentro de `Integer.parseInt(...)`) se calculan antes.
+         */
+        private fun memberNode(
+            member: String,
+            label: String,
+            value: EvaluatedValue,
+            type: SemanticDataType,
+            args: List<SemanticAstNode>?,
+            span: SourceSpan
+        ): SemanticAstNode = SemanticAstNode(
+            id = id(),
+            kind = SemanticNodeKind.IDENTIFIER_REF,
+            primaryLabel = label,
+            resolvedType = type,
+            evaluatedValue = value,
+            children = args.orEmpty(),
+            span = span,
+            callName = if (args != null) member else null
+        )
+
+        //Valores desconocidos: letras x, y, z…
+
+        /** Letra de cada expresión desconocida; la misma expresión (`Math.random()`, `sc.nextLine()`) usa la misma letra. */
+        private val symbolLetters = LinkedHashMap<String, String>()
+
+        private fun symbolFor(key: String, type: SemanticDataType): EvaluatedValue.SymbolicVal {
+            val letter = symbolLetters.getOrPut(key) { EvaluatedValue.SymbolicVal.letterAt(symbolLetters.size) }
+            return EvaluatedValue.SymbolicVal.of(letter, type)
+        }
+
+        /** Texto que identifica el valor de un nodo (para reconocer expresiones repetidas). */
+        private fun valueKey(node: SemanticAstNode): String {
+            val v = node.evaluatedValue
+            return if (v is EvaluatedValue.SymbolicVal || v.isConstant) v.formatForTreeAndQuadruple() else node.primaryLabel
+        }
+
+        /**
+         * Resultado de una operación entre valores desconocidos que no es lineal (`x*y`, `x/y`, `s + x`, `x > 5`): toma
+         * su propia letra, con el tipo del resultado.
+         */
+        private fun unknownResult(op: String, l: SemanticAstNode, r: SemanticAstNode, value: EvaluatedValue, type: SemanticDataType): EvaluatedValue {
+            if (value != EvaluatedValue.UnknownVal) return value
+            if (l.evaluatedValue !is EvaluatedValue.SymbolicVal && r.evaluatedValue !is EvaluatedValue.SymbolicVal) return value
+            if (type == SemanticDataType.UNKNOWN || type == SemanticDataType.VOID) return value
+            return symbolFor("(${valueKey(l)})$op(${valueKey(r)})", type)
+        }
+
+        /** Etiqueta del método en el código intermedio, con sus argumentos: `charAt(0)`, `substring(0,4)`, `nextLine()`. */
+        private fun memberLabel(member: String, argExprs: List<Expr>?, args: List<SemanticAstNode>?): String {
+            if (argExprs == null || args == null) return member
+            return argExprs.indices.joinToString(",", "$member(", ")") { i -> argText(argExprs[i], args[i]) }
+        }
+
+        private fun argText(expr: Expr, node: SemanticAstNode): String = when {
+            expr is LiteralExpr -> expr.token.lexeme
+            node.evaluatedValue.isConstant || node.evaluatedValue is EvaluatedValue.SymbolicVal ->
+                node.evaluatedValue.formatForTreeAndQuadruple()
+            else -> sourceText(expr)
+        }
+
+        /** Texto compacto de una expresión (`System.in`, `ID3+1`). */
+        private fun sourceText(expr: Expr): String = when (expr) {
+            is LiteralExpr -> expr.token.lexeme
+            is NameExpr -> tokenBinding[expr.token.span.start.offset]?.let { "ID${it.id}" } ?: expr.token.lexeme
+            is GroupExpr -> "(${sourceText(expr.inner)})"
+            is BinaryExpr -> "${sourceText(expr.left)}${expr.operator.lexeme}${sourceText(expr.right)}"
+            is UnaryExpr -> if (expr.isPrefix) "${expr.operator.lexeme}${sourceText(expr.operand)}" else "${sourceText(expr.operand)}${expr.operator.lexeme}"
+            is CastExpr -> "(${expr.typeToken.lexeme})${sourceText(expr.operand)}"
+            is NewExpr -> "new ${expr.classToken.lexeme}()"
+            is AccessExpr -> "${sourceText(expr.target)}.${expr.member.lexeme}" +
+                (expr.args?.joinToString(",", "(", ")") { sourceText(it) } ?: "")
+            is CallExpr -> "${expr.name.lexeme}(${expr.args.joinToString(",") { sourceText(it) }})"
+            is ErrorExpr -> "?"
         }
 
         /**
@@ -1516,24 +1652,6 @@ class SemanticAnalyzer(
         )
 
         /** Identificadores de Java que no son creados por el programador (no se numeran en la Tabla de Símbolos). */
-        val JAVA_API_NAMES = KNOWN_JAVA_CLASSES + setOf(
-            "out", "in", "println", "print", "random", "length", "charAt", "equals", "toUpperCase", "toLowerCase",
-            "substring", "indexOf", "trim", "isEmpty", "nextInt", "nextDouble", "nextLine", "next", "abs", "pow",
-            "sqrt", "max", "min", "round", "PI", "parseInt", "parseDouble", "valueOf", "toString"
-        )
-
-        val MATH_METHODS = setOf("random", "abs", "pow", "sqrt", "max", "min", "round")
-
-        val STRING_METHODS: Map<String, SemanticDataType> = mapOf(
-            "length" to SemanticDataType.INT,
-            "charAt" to SemanticDataType.CHAR,
-            "equals" to SemanticDataType.BOOLEAN,
-            "isEmpty" to SemanticDataType.BOOLEAN,
-            "indexOf" to SemanticDataType.INT,
-            "toUpperCase" to SemanticDataType.STRING,
-            "toLowerCase" to SemanticDataType.STRING,
-            "trim" to SemanticDataType.STRING,
-            "substring" to SemanticDataType.STRING
-        )
+        val JAVA_API_NAMES = KNOWN_JAVA_CLASSES + JavaApi.ALL_NAMES
     }
 }

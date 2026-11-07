@@ -118,7 +118,10 @@ object ValueOps {
     /** Resultado de `left op right` o [UnknownVal] si no se puede conocer en compilación. */
     fun binary(op: String, left: EvaluatedValue, right: EvaluatedValue): EvaluatedValue {
         // Concatenación de String
-        if (op == "+" && (left is StringVal || right is StringVal)) {
+        if (op == "+" && (left is StringVal || right is StringVal || left.isTextSymbol() || right.isTextSymbol())) {
+            // Con un texto desconocido (lo que lee Scanner) el resultado también es desconocido: el analizador le
+            // asigna su propia letra.
+            if (left.isTextSymbol() || right.isTextSymbol()) return UnknownVal
             val l = EvaluatedValue.toConcatText(left) ?: (left as? SymbolicVal)?.formatForTreeAndQuadruple()
             val r = EvaluatedValue.toConcatText(right) ?: (right as? SymbolicVal)?.formatForTreeAndQuadruple()
             return if (l != null && r != null) StringVal(l + r) else UnknownVal
@@ -213,34 +216,63 @@ object ValueOps {
         }
     }
 
-    /** Aritmética lineal con el valor simbólico de `Math.random()`. */
+    /** `true` si es un valor desconocido no numérico (String, boolean…): no admite aritmética lineal. */
+    private fun EvaluatedValue.isTextSymbol(): Boolean =
+        this is SymbolicVal && !type.isNumeric
+
+    /**
+     * Aritmética lineal con valores desconocidos (letras): `x + 5`, `3·z`, `2y + 3z + 50.0`. Lo que no es lineal
+     * (`x·y`, `x / y`, `%`, comparaciones) da [UnknownVal] y el analizador le asigna una letra nueva.
+     * Si las letras se cancelan (`x - x`) el resultado es la constante.
+     */
     private fun symbolic(op: String, left: EvaluatedValue, right: EvaluatedValue): EvaluatedValue {
+        if (left.isTextSymbol() || right.isTextSymbol()) return UnknownVal
         val type = SemanticDataType.numericPromotion(left.dataType, right.dataType)
         val ls = left as? SymbolicVal
         val rs = right as? SymbolicVal
         val lc = left.asDoubleOrNull()
         val rc = right.asDoubleOrNull()
-        return when {
-            // Las láminas tratan todo Math.random() como una misma X: 12X + 0.6667X = 12.6667X
+        val result: EvaluatedValue = when {
             ls != null && rs != null -> when (op) {
-                "+" -> SymbolicVal(ls.coefficient + rs.coefficient, ls.constant + rs.constant, type)
-                "-" -> SymbolicVal(ls.coefficient - rs.coefficient, ls.constant - rs.constant, type)
+                "+" -> combine(ls, rs, 1.0, type)
+                "-" -> combine(ls, rs, -1.0, type)
                 else -> UnknownVal
-            }.let { if (it is SymbolicVal && kotlin.math.abs(it.coefficient) < 1e-9) UnknownVal else it }
+            }
             ls != null && rc != null -> when (op) {
-                "+" -> SymbolicVal(ls.coefficient, ls.constant + rc, type)
-                "-" -> SymbolicVal(ls.coefficient, ls.constant - rc, type)
-                "*" -> SymbolicVal(ls.coefficient * rc, ls.constant * rc, type)
-                "/" -> if (rc == 0.0) UnknownVal else SymbolicVal(ls.coefficient / rc, ls.constant / rc, type)
+                "+" -> SymbolicVal(ls.terms, ls.constant + rc, type)
+                "-" -> SymbolicVal(ls.terms, ls.constant - rc, type)
+                "*" -> scale(ls, rc, type)
+                "/" -> if (rc == 0.0) UnknownVal else scale(ls, 1.0 / rc, type)
                 else -> UnknownVal
             }
             rs != null && lc != null -> when (op) {
-                "+" -> SymbolicVal(rs.coefficient, rs.constant + lc, type)
-                "-" -> SymbolicVal(-rs.coefficient, lc - rs.constant, type)
-                "*" -> SymbolicVal(rs.coefficient * lc, rs.constant * lc, type)
+                "+" -> SymbolicVal(rs.terms, rs.constant + lc, type)
+                "-" -> SymbolicVal(rs.terms.mapValues { -it.value }, lc - rs.constant, type)
+                "*" -> scale(rs, lc, type)
                 else -> UnknownVal
             }
             else -> UnknownVal
+        }
+        return if (result is SymbolicVal) simplify(result) else result
+    }
+
+    private fun combine(a: SymbolicVal, b: SymbolicVal, sign: Double, type: SemanticDataType): SymbolicVal {
+        val terms = LinkedHashMap(a.terms)
+        for ((letter, c) in b.terms) terms[letter] = (terms[letter] ?: 0.0) + sign * c
+        return SymbolicVal(terms, a.constant + sign * b.constant, type)
+    }
+
+    private fun scale(a: SymbolicVal, factor: Double, type: SemanticDataType): SymbolicVal =
+        SymbolicVal(a.terms.mapValues { it.value * factor }, a.constant * factor, type)
+
+    /** Quita las letras con coeficiente 0; si no queda ninguna, devuelve la constante con su tipo. */
+    private fun simplify(v: SymbolicVal): EvaluatedValue {
+        val terms = v.terms.filterValues { kotlin.math.abs(it) >= 1e-9 }
+        if (terms.isNotEmpty()) return SymbolicVal(terms, v.constant, v.type)
+        return when {
+            v.type.isIntegral -> wrapInt(kotlin.math.round(v.constant).toLong(), v.type)
+            v.type == SemanticDataType.FLOAT -> FloatVal(v.constant.toFloat())
+            else -> DoubleVal(v.constant)
         }
     }
 
@@ -250,7 +282,11 @@ object ValueOps {
             is CharVal -> IntVal(-value.code.toLong())
             is FloatVal -> FloatVal(-value.value)
             is DoubleVal -> DoubleVal(-value.value)
-            is SymbolicVal -> SymbolicVal(-value.coefficient, -value.constant, value.type)
+            is SymbolicVal -> if (value.type.isNumeric) {
+                SymbolicVal(value.terms.mapValues { -it.value }, -value.constant, value.type)
+            } else {
+                UnknownVal
+            }
             else -> UnknownVal
         }
         "+" -> if (value is CharVal) IntVal(value.code.toLong()) else value

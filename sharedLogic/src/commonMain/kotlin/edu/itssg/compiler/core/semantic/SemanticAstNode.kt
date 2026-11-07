@@ -205,24 +205,76 @@ sealed interface EvaluatedValue {
     }
 
     /**
-     * Valor desconocido en compilación que depende de `Math.random()`: forma lineal `constant + coefficient·X`.
+     * Valor que no se conoce al compilar (lo que lee `Scanner`, `Math.random()`, el resultado de un método de Java
+     * sobre un valor desconocido…). Como en los ejercicios de la materia, cada valor desconocido se representa con una
+     * letra (`x`, `y`, `z`, …) y las operaciones lineales se arman con ellas: `3z+78`, `-y+3z+78`, `2y+3z+50.0`.
+     *
+     * @property terms Coeficiente de cada letra (sin términos en cero).
+     * @property constant Término independiente (va al final, como en las láminas).
+     * @property type Tipo del valor: numérico (admite aritmética lineal) o String/char/boolean (solo la letra).
      */
     data class SymbolicVal(
-        val coefficient: Double = 1.0,
+        val terms: Map<String, Double>,
         val constant: Double = 0.0,
         val type: SemanticDataType = SemanticDataType.DOUBLE
     ) : EvaluatedValue {
         override val dataType: SemanticDataType get() = type
+
+        /** Letra sola con coeficiente 1 y sin constante (`x`). */
+        val singleLetter: String?
+            get() = terms.entries.singleOrNull()?.takeIf { abs(it.value - 1.0) < 1e-9 && abs(constant) < 1e-9 }?.key
+
         override fun formatForTreeAndQuadruple(): String {
-            val integralSuffix = type == SemanticDataType.DOUBLE || type == SemanticDataType.FLOAT
-            val xPart = when {
-                abs(coefficient - 1.0) < 1e-9 -> if (integralSuffix) "X.0" else "X"
-                isWhole(coefficient) -> "${coefficient.toLong()}X" + if (integralSuffix) ".0" else ""
-                else -> "${roundTo4(coefficient)}X"
+            val ordered = terms.entries.filter { abs(it.value) >= 1e-9 }.sortedBy { letterIndex(it.key) }
+            val sb = StringBuilder()
+            for ((letter, coefficient) in ordered) {
+                val negative = coefficient < 0
+                val magnitude = abs(coefficient)
+                if (sb.isNotEmpty()) sb.append(if (negative) "-" else "+") else if (negative) sb.append('-')
+                when {
+                    abs(magnitude - 1.0) < 1e-9 -> Unit
+                    isWhole(magnitude) -> sb.append(round(magnitude).toLong())
+                    else -> sb.append(roundTo4(magnitude))
+                }
+                sb.append(letter)
             }
-            if (abs(constant) < 1e-9) return xPart
-            val c = if (isWhole(constant)) constant.toLong().toString() else roundTo4(constant).toString()
-            return "$c+$xPart"
+            if (abs(constant) >= 1e-9 || sb.isEmpty()) {
+                val magnitude = abs(constant)
+                val text = when {
+                    type == SemanticDataType.DOUBLE || type == SemanticDataType.FLOAT -> formatDecimal(magnitude)
+                    isWhole(magnitude) -> round(magnitude).toLong().toString()
+                    else -> roundTo4(magnitude).toString()
+                }
+                if (sb.isEmpty()) {
+                    if (constant < 0) sb.append('-')
+                } else {
+                    sb.append(if (constant < 0) "-" else "+")
+                }
+                sb.append(text)
+            }
+            return sb.toString()
+        }
+
+        companion object {
+            /** Valor desconocido representado solo por [letter]. */
+            fun of(letter: String, type: SemanticDataType): SymbolicVal = SymbolicVal(mapOf(letter to 1.0), 0.0, type)
+
+            /** Orden de las letras: x, y, z, después a, b, c… (sin repetir x, y, z) y luego x1, y1, … */
+            private val BASE_LETTERS: List<String> = listOf("x", "y", "z") +
+                ('a'..'w').map { it.toString() }
+
+            fun letterAt(index: Int): String {
+                val round = index / BASE_LETTERS.size
+                val letter = BASE_LETTERS[index % BASE_LETTERS.size]
+                return if (round == 0) letter else "$letter$round"
+            }
+
+            fun letterIndex(letter: String): Int {
+                val base = letter.takeWhile { it.isLetter() }
+                val round = letter.drop(base.length).toIntOrNull() ?: 0
+                val i = BASE_LETTERS.indexOf(base)
+                return if (i < 0) Int.MAX_VALUE else round * BASE_LETTERS.size + i
+            }
         }
     }
 
@@ -298,6 +350,8 @@ enum class SemanticNodeKind(val isOperation: Boolean) {
  *
  * @property referencedNodeId Para hojas `IDn` que reutilizan un valor ya calculado en una instrucción previa del
  *   método principal (p. ej. `a = b + 5*2;` reutiliza el paso de `b`): id del nodo que lo calculó.
+ * @property callName En el miembro de una llamada a un método de Java (`charAt(0)`), el nombre del método; sus
+ *   [children] son los argumentos (los que son operaciones se calculan antes, en su propio renglón).
  */
 data class SemanticAstNode(
     val id: Int,
@@ -311,7 +365,8 @@ data class SemanticAstNode(
     val symbolId: Int? = null,
     val referencedNodeId: Int? = null,
     val children: List<SemanticAstNode> = emptyList(),
-    val span: SourceSpan
+    val span: SourceSpan,
+    val callName: String? = null
 ) {
     /** Texto del recuadro del diagrama (ej. `"ID1\nPMAIN"`, `"ID4\n="`, `"RTN (char)"`, `"/ (int)"`). */
     val boxDisplayText: String

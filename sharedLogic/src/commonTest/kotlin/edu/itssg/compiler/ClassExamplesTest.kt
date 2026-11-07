@@ -184,7 +184,7 @@ class ClassExamplesTest {
             listOf("asesorias", "Viernes", "a", "x", "y", "variable", "a", "num"),
             r.symbolEntries.sortedBy { it.symbolId }.map { it.lexeme }
         )
-        assertTrue(r.intermediateCode.quadruples.any { it.formatAcademic().contains("(Math, ., random(), X.0)") })
+        assertTrue(r.intermediateCode.quadruples.any { it.formatAcademic().contains("(Math, ., random(), x)") })
     }
 
     // ------------------------------------------------------------------ U3: clase Facil

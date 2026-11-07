@@ -190,10 +190,26 @@ sealed interface IrOperand {
         override val display: String get() = text
     }
 
+    /**
+     * Llamada a un método de Java con sus argumentos: `charAt(0)`, `parseInt([2])`, `nextLine()`. Los argumentos son
+     * operandos (pueden ser referencias `[n]`), así que se sustituyen y renumeran al optimizar.
+     */
+    data class Call(val name: String, val args: List<IrOperand>) : IrOperand {
+        override val display: String get() = args.joinToString(",", "$name(", ")") { it.display }
+    }
+
     data object None : IrOperand {
         override val display: String get() = ""
     }
 }
+
+/** El operando y, si es una llamada, también sus argumentos (para encontrar todas las referencias `[n]`). */
+val IrOperand.flattened: List<IrOperand>
+    get() = if (this is IrOperand.Call) listOf(this) + args.flatMap { it.flattened } else listOf(this)
+
+/** Aplica [transform] a cada operando simple, incluidos los argumentos de las llamadas. */
+fun IrOperand.mapOperands(transform: (IrOperand) -> IrOperand): IrOperand =
+    if (this is IrOperand.Call) IrOperand.Call(name, args.map { it.mapOperands(transform) }) else transform(this)
 
 /** Tipo de acción del renglón de código intermedio. */
 enum class IrOpKind {
@@ -230,7 +246,8 @@ data class IrOperation(
     val arg2: IrOperand,
     val result: EvaluatedValue
 ) {
-    val operands: List<IrOperand> get() = listOf(arg1, arg2)
+    /** Operandos del renglón, incluidos los argumentos de las llamadas a métodos de Java. */
+    val operands: List<IrOperand> get() = arg1.flattened + arg2.flattened
 
     fun toQuadruple(annotation: String? = null, deleted: Boolean = false, modified: Boolean = false) =
         QuadrupleInstruction(

@@ -178,7 +178,7 @@ class ResultTablesTest {
         val receiver = c.rows.first { it.originalStep == 4 }
         assertEquals(listOf("FO"), receiver.received.map { it.code })
         assertEquals(3, receiver.optimizedStep)
-        assertEquals("([2], +, 10, 10+X.0)", receiver.optimizedText)
+        assertEquals("([2], +, 10, x+10.0)", receiver.optimizedText)
 
         val rs = c.rows.first { it.originalStep == 6 }
         assertEquals("RS", rs.applied?.code)
@@ -232,10 +232,10 @@ class ResultTablesTest {
         assertTrue(text.contains("Resumen: 10 → 8 instrucciones (−20 %)"), text)
         assertTrue(text.contains("Cuádruplo original\tOptimización\tCuádruplo afectado\tCuádruplo modificado"), text)
         assertTrue(text.contains("6. (5, *, 2, 10)  RS[3] 7 -> ELIMINAR"), text)
-        assertTrue(text.contains("1. (Math, ., random(), X.0)\t~\t~\t~"), text)
+        assertTrue(text.contains("1. (Math, ., random(), x)\t~\t~\t~"), text)
         assertTrue(text.contains("3. (5, *, 2, 10)\tFO\t4\t3. (5, *, 2, 10) -> Eliminado"), text)
         assertTrue(text.contains("6. (5, *, 2, 10)\tRS[3]\t7\t5. (5, *, 2, 10) -> Eliminado"), text)
-        assertTrue(text.contains("10. (PMAIN, SOUT, [9], 28+X.0)\t~\t~\t8. (PMAIN, SOUT, [7], 28+X.0)"), text)
+        assertTrue(text.contains("10. (PMAIN, SOUT, [9], x+28.0)\t~\t~\t8. (PMAIN, SOUT, [7], x+28.0)"), text)
     }
 
     @Test
