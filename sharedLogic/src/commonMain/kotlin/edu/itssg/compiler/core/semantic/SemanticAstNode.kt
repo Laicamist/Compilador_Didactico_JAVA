@@ -180,7 +180,11 @@ sealed interface EvaluatedValue {
 
     data class FloatVal(val value: Float) : EvaluatedValue {
         override val dataType: SemanticDataType get() = SemanticDataType.FLOAT
-        override fun formatForTreeAndQuadruple(): String = "${formatDecimal(value.toDouble())}f"
+        override fun formatForTreeAndQuadruple(): String {
+            val d = value.toDouble()
+            // Java imprime Infinity / NaN sin sufijo.
+            return if (d.isNaN() || d.isInfinite()) formatDecimal(d) else "${formatDecimal(d)}f"
+        }
         override fun asDoubleOrNull(): Double = value.toDouble()
         override val isConstant: Boolean get() = true
     }

@@ -46,6 +46,22 @@ object AcademicErrorTemplates {
     fun unrecognizedSymbol(symbol: String): String =
         "En Java no existe ningún TOKEN para el $symbol, por lo tanto el símbolo no es válido para el lenguaje"
 
+    /**
+     * Número válido en Java que la tabla de tokens (LstTokens) no contempla: `10L`, `5d`, `1e3`, `0x1F`, `0b101`, `1_000`.
+     * Antes se reportaba como un ID mal formado, lo cual confundía (no es un ID, es un literal).
+     */
+    fun unsupportedNumericLiteral(lexeme: String): String =
+        "El literal $lexeme es un número válido en Java, pero no está contemplado en los tokens de la GLC v7 " +
+            "(solo VTE, VTD y VTF: enteros, decimales y decimales con f)"
+
+    /** `true` si [lexeme] tiene forma de literal numérico de Java con sufijo, exponente o base (ver [unsupportedNumericLiteral]). */
+    fun isJavaNumericLiteral(lexeme: String): Boolean = JAVA_NUMERIC_LITERAL.matches(lexeme)
+
+    private val JAVA_NUMERIC_LITERAL = Regex(
+        "0[xX][0-9a-fA-F_]+[lL]?|0[bB][01_]+[lL]?|[0-9][0-9_]*[lLdD]|[0-9][0-9_]*_[0-9]+|" +
+            "[0-9][0-9_]*(\\.[0-9_]*)?[eE][0-9_]*[fFdD]?|[0-9][0-9_]*\\.[0-9_]*[dD]"
+    )
+
     fun invalidIdentifier(lexeme: String): String =
         "Con base en JAVA la cadena $lexeme no cumple con las características para ser un ID" +
             if (lexeme.firstOrNull()?.isDigit() == true) " (un ID no puede iniciar con un dígito)" else ""

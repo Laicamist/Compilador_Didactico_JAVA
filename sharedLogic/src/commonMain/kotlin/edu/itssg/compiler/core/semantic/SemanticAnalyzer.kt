@@ -1,6 +1,8 @@
 package edu.itssg.compiler.core.semantic
 
 import edu.itssg.compiler.core.error.AcademicErrorTemplates
+import edu.itssg.compiler.core.error.CompilerNote
+import edu.itssg.compiler.core.error.CompilerNoteKind
 import edu.itssg.compiler.core.error.ErrorReporter
 import edu.itssg.compiler.core.lexer.Token
 import edu.itssg.compiler.core.lexer.TokenCategory
@@ -28,6 +30,7 @@ import edu.itssg.compiler.core.parser.ProgramAst
 import edu.itssg.compiler.core.parser.ReturnStmt
 import edu.itssg.compiler.core.parser.SoutStmt
 import edu.itssg.compiler.core.parser.Stmt
+import edu.itssg.compiler.core.parser.SwitchCase
 import edu.itssg.compiler.core.parser.SwitchStmt
 import edu.itssg.compiler.core.parser.UnaryExpr
 import edu.itssg.compiler.core.parser.VarDeclStmt
@@ -46,12 +49,15 @@ import edu.itssg.compiler.core.symboltable.SymbolTable
  * @property principalExpressionNotations Notación de la expresión principal (U2 "Código → Notación → Expresión
  *   principal"), con sus formas prefija y postfija.
  * @property resolvedTokenSymbols Número de ID definitivo de cada token identificador, por `offset` del token.
+ * @property notes Observaciones didácticas que no son errores (estructuras de control omitidas, división entre cero,
+ *   recursión cortada), en orden de posición.
  */
 data class SemanticResult(
     val abstractSemanticTree: SemanticAstNode,
     val principalExpressionNotations: List<String>,
     val hasSemanticErrors: Boolean,
-    val resolvedTokenSymbols: Map<Int, Int> = emptyMap()
+    val resolvedTokenSymbols: Map<Int, Int> = emptyMap(),
+    val notes: List<CompilerNote> = emptyList()
 )
 
 /**
@@ -75,8 +81,10 @@ data class SemanticResult(
  *    se ejecutan primero las acciones del nivel más profundo y, en un mismo nivel, de izquierda a derecha. Ese número
  *    es [SemanticAstNode.evaluationStepNumber] y es el número de renglón de los códigos intermedios.
  *
- * Las estructuras de control (`if`, `while`, `do`, `for`, `switch`) se validan semánticamente, pero no forman parte
- * del árbol abstracto ni del código intermedio: la teoria de la clase de automatas no definio su representación.
+ * Las estructuras de control (`if`, `while`, `do`, `for`, `switch`) se validan semánticamente (cada bloque `{ }` tiene
+ * su propio ámbito), pero no forman parte del árbol abstracto ni del código intermedio: la teoría de la clase no definió
+ * su representación. Cada una deja una observación ([SemanticResult.notes]) y las variables de afuera que modifica
+ * quedan con valor desconocido (una letra) a partir de ahí.
  */
 class SemanticAnalyzer(
     private val config: CompilerSecurityConfig = CompilerSecurityConfig()
@@ -110,9 +118,49 @@ class SemanticAnalyzer(
         val display: String get() = className ?: type.keyword
     }
 
-    private class Scope(val label: String, val method: MethodDecl?) {
+    /**
+     * Ámbito de nombres. El método (o `main`) es la raíz; cada bloque `{ }` de `if`, `while`, `do`, `for` y `switch`
+     * abre un ámbito hijo: lo que se declara dentro deja de existir al cerrar la llave, como en Java.
+     *
+     * - [find] busca del bloque actual hacia afuera.
+     * - Java no permite volver a declarar una variable local de un bloque exterior, así que la redeclaración se revisa
+     *   en toda la cadena; dos bloques hermanos (`if { int y; } else { int y; }`) sí pueden usar el mismo nombre.
+     * - [initialized] guarda lo que se inicializó en este bloque; al cerrarlo, solo pasa al exterior lo que Java
+     *   considera "asignación definitiva" (ver [checkStatement]).
+     */
+    private class Scope(val label: String, val method: MethodDecl?, val parent: Scope? = null) {
         val names = LinkedHashMap<String, Binding>()
         val initialized = HashSet<Binding>()
+
+        /** Variables cuyo "se usa sin inicializar" ya se reportó (una sola vez por variable en todo el método). */
+        private val reportedUninitialized: HashSet<Binding> = parent?.reportedUninitialized ?: HashSet()
+
+        fun child(): Scope = Scope(label, method, this)
+
+        fun find(name: String): Binding? {
+            var current: Scope? = this
+            while (current != null) {
+                current.names[name]?.let { return it }
+                current = current.parent
+            }
+            return null
+        }
+
+        fun isInitialized(b: Binding): Boolean {
+            var current: Scope? = this
+            while (current != null) {
+                if (b in current.initialized) return true
+                current = current.parent
+            }
+            return false
+        }
+
+        fun markInitialized(b: Binding) {
+            initialized += b
+        }
+
+        /** `true` la primera vez que se pide reportar a [b] como no inicializada. */
+        fun shouldReportUninitialized(b: Binding): Boolean = reportedUninitialized.add(b)
     }
 
     // ------------------------------------------------------------------ Estado por análisis
@@ -168,7 +216,8 @@ class SemanticAnalyzer(
             abstractSemanticTree = numbered,
             principalExpressionNotations = notations,
             hasSemanticErrors = errorReporter.errorCount > errorsBefore,
-            resolvedTokenSymbols = finalIds
+            resolvedTokenSymbols = finalIds,
+            notes = builder.notes
         )
     }
 
@@ -336,7 +385,7 @@ class SemanticAnalyzer(
         when (s) {
             is VarDeclStmt -> {
                 val (typeName, type) = typeOfToken(s.typeToken)
-                if (scope.names.containsKey(s.name.lexeme)) {
+                if (scope.find(s.name.lexeme) != null) {
                     semanticError(s.name, AcademicErrorTemplates.redeclaredIdentifier(s.name.lexeme, scope.label))
                     s.init?.let { checkExpr(it, scope) }
                     return
@@ -348,7 +397,7 @@ class SemanticAnalyzer(
                 scope.names[s.name.lexeme] = b
                 if (init != null && info != null) {
                     checkAssignment(s.name, typeName, type, b.className, info, init)
-                    scope.initialized += b
+                    scope.markInitialized(b)
                 }
             }
             is AssignStmt -> {
@@ -359,14 +408,17 @@ class SemanticAnalyzer(
                     target.role == SymbolRole.CLASS || target.role == SymbolRole.METODO || target.role == SymbolRole.PACKAGE ->
                         semanticError(s.target, AcademicErrorTemplates.notAssignable(s.target.lexeme, target.role.label))
                     else -> {
+                        // El destino también es un uso del símbolo: sin esto la tabla léxica no le pone su IDn y el
+                        // árbol semántico no encuentra la asignación (la descartaba y se seguía usando el valor previo).
+                        tokenBinding[s.target.span.start.offset] = target
                         checkAssignment(s.target, target.typeName, target.type, target.className, info, s.value)
-                        scope.initialized += target
+                        scope.markInitialized(target)
                     }
                 }
             }
             is ObjDeclStmt -> {
                 checkObjectCreation(s)
-                if (scope.names.containsKey(s.name.lexeme)) {
+                if (scope.find(s.name.lexeme) != null) {
                     semanticError(s.name, AcademicErrorTemplates.redeclaredIdentifier(s.name.lexeme, scope.label))
                     return
                 }
@@ -374,7 +426,7 @@ class SemanticAnalyzer(
                 val b = declare(s.name, SymbolRole.OBJECT, typeName, type, scope.label)
                 b.obj = s
                 scope.names[s.name.lexeme] = b
-                scope.initialized += b
+                scope.markInitialized(b)
             }
             is SoutStmt -> {
                 if (s.printToken.lexeme != "println" && s.printToken.lexeme != "print") {
@@ -399,33 +451,45 @@ class SemanticAnalyzer(
                     s.value?.let { checkExpr(it, scope) }
                 }
             }
+            // Cada cuerpo es un bloque con ámbito propio. Asignación definitiva (reglas de Java): después de un
+            // if/else una variable queda inicializada solo si ambos brazos la inicializan; un do-while ejecuta su cuerpo
+            // al menos una vez; un while, un for o un if sin else pueden no ejecutarse, así que no inicializan nada afuera.
             is IfStmt -> {
                 checkCondition("IFEL", s.condition, scope)
-                checkStatements(s.thenBody, scope)
-                s.elseBody?.let { checkStatements(it, scope) }
+                val thenScope = scope.child().also { checkStatements(s.thenBody, it) }
+                val elseBody = s.elseBody
+                if (elseBody != null) {
+                    val elseScope = scope.child().also { checkStatements(elseBody, it) }
+                    thenScope.initialized.filter { it in elseScope.initialized }.forEach { scope.markInitialized(it) }
+                }
             }
             is WhileStmt -> {
                 checkCondition("WHILE", s.condition, scope)
-                checkStatements(s.body, scope)
+                checkStatements(s.body, scope.child())
             }
             is DoWhileStmt -> {
-                checkStatements(s.body, scope)
+                val bodyScope = scope.child().also { checkStatements(s.body, it) }
+                bodyScope.initialized.forEach { scope.markInitialized(it) }
                 checkCondition("DO", s.condition, scope)
             }
             is ForStmt -> {
-                s.init?.let { checkStatement(it, scope) }
-                s.condition?.let { checkCondition("FOR", it, scope) }
-                s.update?.let { checkExpr(it, scope) }
-                checkStatements(s.body, scope)
+                // La variable de control (`for (int i = 0; ...)`) solo existe dentro del for.
+                val forScope = scope.child()
+                s.init?.let { checkStatement(it, forScope) }
+                s.condition?.let { checkCondition("FOR", it, forScope) }
+                s.update?.let { checkExpr(it, forScope) }
+                checkStatements(s.body, forScope.child())
             }
             is SwitchStmt -> {
                 val sel = checkExpr(s.selector, scope)
                 if (sel.type != SemanticDataType.UNKNOWN && !sel.type.isIntegral && sel.type != SemanticDataType.STRING) {
                     semanticError(firstToken(s.selector), "El TD ${sel.display} no puede evaluarse en un SWITCH (se espera int, char o String)")
                 }
+                // En Java todos los case comparten el bloque { } del switch.
+                val switchScope = scope.child()
                 for (c in s.cases) {
                     c.value?.let { checkExpr(it, scope) }
-                    checkStatements(c.body, scope)
+                    checkStatements(c.body, switchScope)
                 }
             }
         }
@@ -507,7 +571,7 @@ class SemanticAnalyzer(
      *   declarados ANTES son válidos ("validación de declaraciones previas").
      */
     private fun resolveName(token: Token, scope: Scope, fieldLimit: Int?): Binding? {
-        scope.names[token.lexeme]?.let { return it }
+        scope.find(token.lexeme)?.let { return it }
         fields[token.lexeme]?.let { b ->
             if (fieldLimit != null) {
                 val idx = classDecl?.fields?.indexOf(b.field) ?: -1
@@ -647,9 +711,10 @@ class SemanticAnalyzer(
                 TypeInfo(SemanticDataType.UNKNOWN, isClassReference = true)
             }
             else -> {
-                if (!b.isClassLevel && b !in scope.initialized && b.role == SymbolRole.VARIABLE) {
+                if (!b.isClassLevel && b.role == SymbolRole.VARIABLE && !scope.isInitialized(b) &&
+                    scope.shouldReportUninitialized(b) // un solo reporte por variable
+                ) {
                     semanticError(token, AcademicErrorTemplates.uninitializedVariable(token.lexeme))
-                    scope.initialized += b // un solo reporte por variable
                 }
                 TypeInfo(b.type, className = b.className)
             }
@@ -836,7 +901,12 @@ class SemanticAnalyzer(
         val locals: Map<Binding, Pair<Expr, Frame>>,
         val depth: Int,
         val isMain: Boolean,
-        val materialized: MutableMap<Binding, SemanticAstNode>
+        val materialized: MutableMap<Binding, SemanticAstNode>,
+        /**
+         * Variables modificadas dentro de una estructura de control (que no se representa): desde ahí su valor no se
+         * conoce al compilar y se usa una letra (`x`, `y`…), como los valores desconocidos de la U3.
+         */
+        val opaque: Map<Binding, EvaluatedValue> = emptyMap()
     )
 
     private inner class TreeBuilder {
@@ -845,6 +915,19 @@ class SemanticAnalyzer(
         private var limitReported = false
         private val fieldsInExpansion = HashSet<Binding>()
         private val classFrame = Frame(null, null, emptyMap(), emptyMap(), 0, false, HashMap())
+
+        /** Variables del main que quedaron con valor desconocido tras una estructura de control. */
+        private val mainOpaque = HashMap<Binding, EvaluatedValue>()
+
+        /** Observaciones sin repetir (una por tipo y posición), en orden de aparición. */
+        private val noteMap = LinkedHashMap<Pair<CompilerNoteKind, Int>, CompilerNote>()
+
+        val notes: List<CompilerNote>
+            get() = noteMap.values.sortedWith(compareBy({ it.line }, { it.column }))
+
+        private fun note(kind: CompilerNoteKind, message: String, span: SourceSpan) {
+            noteMap.getOrPut(kind to span.start.offset) { CompilerNote(kind, message, span) }
+        }
 
         private fun id(): Int {
             nodeCount++
@@ -872,7 +955,7 @@ class SemanticAnalyzer(
             val main = clazz?.main
             val children = ArrayList<SemanticAstNode>()
             if (main != null) {
-                val frame = Frame(null, null, emptyMap(), emptyMap(), 0, true, HashMap())
+                val frame = Frame(null, null, emptyMap(), emptyMap(), 0, true, HashMap(), mainOpaque)
                 for (s in main.body) {
                     statementNode(s, frame, owner = null)?.let { children += it }
                 }
@@ -917,7 +1000,10 @@ class SemanticAnalyzer(
             is AssignStmt -> {
                 val b = tokenBinding[s.target.span.start.offset]
                 if (b == null || !frame.isMain) null
-                else assignment(b, expand(s.value, frame), s.span).also { frame.materialized[b] = it }
+                else assignment(b, expand(s.value, frame), s.span).also {
+                    frame.materialized[b] = it
+                    mainOpaque.remove(b)
+                }
             }
             is ObjDeclStmt -> {
                 val b = tokenBinding[s.name.span.start.offset]
@@ -934,8 +1020,93 @@ class SemanticAnalyzer(
                     assignment(b, value, s.span).also { frame.materialized[b] = it }
                 }
             }
-            is ExprStmt -> expand(s.expr, frame)
+            is ExprStmt -> {
+                val node = expand(s.expr, frame)
+                // `a++;` / `--a;` como instrucción del main: los usos siguientes de `a` reutilizan este paso.
+                val incremented = incrementedBinding(s.expr)
+                if (frame.isMain && incremented != null) {
+                    frame.materialized[incremented] = node
+                    mainOpaque.remove(incremented)
+                }
+                node
+            }
+            is IfStmt, is WhileStmt, is DoWhileStmt, is ForStmt, is SwitchStmt -> {
+                if (frame.isMain) {
+                    for ((b, value) in opaqueValuesFor(s)) {
+                        frame.materialized.remove(b)
+                        mainOpaque[b] = value
+                    }
+                }
+                null
+            }
             else -> null
+        }
+
+        /** Símbolo que incrementa o decrementa una instrucción `a++`, `++a`, `a--` o `--a` (si lo es). */
+        private fun incrementedBinding(expr: Expr): Binding? {
+            if (expr !is UnaryExpr) return null
+            if (expr.operator.category != TokenCategory.INC && expr.operator.category != TokenCategory.DEC) return null
+            val operand = expr.operand as? NameExpr ?: return null
+            return tokenBinding[operand.token.span.start.offset]
+        }
+
+        /**
+         * Registra la observación de una estructura de control y regresa el valor desconocido (una letra nueva si es
+         * numérico) de cada variable que se modifica dentro de ella.
+         */
+        private fun opaqueValuesFor(s: Stmt): Map<Binding, EvaluatedValue> {
+            val assigned = LinkedHashSet<Binding>()
+            val declaredInside = HashSet<Binding>()
+            collectAssigned(listOf(s), assigned, declaredInside)
+            val values = LinkedHashMap<Binding, EvaluatedValue>()
+            // Lo declarado dentro del bloque deja de existir al cerrarlo; solo importan las variables de afuera.
+            for (b in assigned - declaredInside) {
+                values[b] = if (b.type.isNumeric) symbolFor("control:${b.id}:${s.span.start.offset}", b.type)
+                else EvaluatedValue.UnknownVal
+            }
+            val name = when (s) {
+                is IfStmt -> "IFEL"
+                is WhileStmt -> "WHILE"
+                is DoWhileStmt -> "DO"
+                is ForStmt -> "FOR"
+                else -> "SWITCH"
+            }
+            val changed = if (values.isEmpty()) "" else {
+                val list = values.entries.joinToString(", ") { (b, v) ->
+                    if (v is EvaluatedValue.SymbolicVal) "ID${b.id} (${b.name}) = ${v.formatForTreeAndQuadruple()}"
+                    else "ID${b.id} (${b.name}) = ?"
+                }
+                " Las variables que modifica quedan con valor desconocido: $list."
+            }
+            note(
+                CompilerNoteKind.CONTROL_FLOW_OMITTED,
+                "La estructura $name se validó, pero no se representa en el árbol abstracto-semántico ni en el " +
+                    "código intermedio (las láminas no definen su representación).$changed",
+                s.span
+            )
+            return values
+        }
+
+        private fun collectAssigned(stmts: List<Stmt>, out: MutableSet<Binding>, declared: MutableSet<Binding>) {
+            for (s in stmts) when (s) {
+                is AssignStmt -> tokenBinding[s.target.span.start.offset]?.let { out += it }
+                is ExprStmt -> incrementedBinding(s.expr)?.let { out += it }
+                is VarDeclStmt -> tokenBinding[s.name.span.start.offset]?.let { declared += it }
+                is ObjDeclStmt -> tokenBinding[s.name.span.start.offset]?.let { declared += it }
+                is IfStmt -> {
+                    collectAssigned(s.thenBody, out, declared)
+                    s.elseBody?.let { collectAssigned(it, out, declared) }
+                }
+                is WhileStmt -> collectAssigned(s.body, out, declared)
+                is DoWhileStmt -> collectAssigned(s.body, out, declared)
+                is ForStmt -> {
+                    s.init?.let { collectAssigned(listOf(it), out, declared) }
+                    s.update?.let { u -> incrementedBinding(u)?.let { out += it } }
+                    collectAssigned(s.body, out, declared)
+                }
+                is SwitchStmt -> s.cases.forEach { c: SwitchCase -> collectAssigned(c.body, out, declared) }
+                else -> Unit
+            }
         }
 
         private fun leaf(
@@ -990,6 +1161,16 @@ class SemanticAnalyzer(
                     val r = expand(expr.right, frame)
                     val op = expr.operator.lexeme
                     val type = SemanticDataType.binaryResultType(l.resolvedType, op, r.resolvedType)
+                    if ((op == "/" || op == "%") && type.isIntegral && r.evaluatedValue.isConstant &&
+                        r.evaluatedValue.asDoubleOrNull() == 0.0
+                    ) {
+                        note(
+                            CompilerNoteKind.DIVISION_BY_ZERO,
+                            "La operación ${sourceText(expr)} divide un entero entre cero: Java la compila, pero al " +
+                                "ejecutarse lanza ArithmeticException, así que su resultado queda desconocido (?).",
+                            expr.span
+                        )
+                    }
                     val value = unknownResult(op, l, r, ValueOps.binary(op, l.evaluatedValue, r.evaluatedValue), type)
                     SemanticAstNode(
                         id = id(),
@@ -1066,14 +1247,19 @@ class SemanticAnalyzer(
             val b = tokenBinding[token.span.start.offset] ?: return unknownLeaf(token.lexeme, token.span)
             return when {
                 b.role == SymbolRole.CLASS -> classLeaf(token.span)
+                frame.opaque.containsKey(b) -> leaf(
+                    SemanticNodeKind.IDENTIFIER_REF, "ID${b.id}", frame.opaque.getValue(b), token.span,
+                    type = b.type, symbolId = b.id
+                )
+                // Lo asignado dentro del método (local, parámetro o atributo) gana sobre su valor inicial.
+                frame.locals.containsKey(b) -> {
+                    val (valueExpr, declFrame) = frame.locals.getValue(b)
+                    assignment(b, expand(valueExpr, declFrame), token.span)
+                }
                 b.isClassLevel && b.field != null -> fieldNode(b, token.span)
                 frame.params.containsKey(b) -> {
                     val (argExpr, callerFrame) = frame.params.getValue(b)
                     assignment(b, expand(argExpr, callerFrame), token.span)
-                }
-                frame.locals.containsKey(b) -> {
-                    val (valueExpr, declFrame) = frame.locals.getValue(b)
-                    assignment(b, expand(valueExpr, declFrame), token.span)
                 }
                 frame.isMain && frame.materialized.containsKey(b) -> {
                     val node = frame.materialized.getValue(b)
@@ -1326,14 +1512,25 @@ class SemanticAnalyzer(
             callerFrame: Frame,
             span: SourceSpan
         ): List<SemanticAstNode> {
-            if (callerFrame.depth >= MAX_CALL_DEPTH) return listOf(unknownLeaf("ID${mb.id}", span))
+            if (callerFrame.depth >= MAX_CALL_DEPTH) {
+                note(
+                    CompilerNoteKind.CALL_DEPTH_LIMIT,
+                    "Las llamadas a ${m.name.lexeme} se anidan más de $MAX_CALL_DEPTH niveles (recursión): el árbol " +
+                        "y el código intermedio se cortan en ese nivel y el valor que regresa queda desconocido (?).",
+                    span
+                )
+                return listOf(unknownLeaf("ID${mb.id}", span))
+            }
             val params = LinkedHashMap<Binding, Pair<Expr, Frame>>()
             m.params.forEachIndexed { i, p ->
                 val pb = tokenBinding[p.name.span.start.offset] ?: return@forEachIndexed
                 args.getOrNull(i)?.let { params[pb] = it to callerFrame }
             }
             var locals: Map<Binding, Pair<Expr, Frame>> = emptyMap()
-            fun currentFrame() = Frame(m, mb, params, locals, callerFrame.depth + 1, false, HashMap())
+            var opaque: Map<Binding, EvaluatedValue> = emptyMap()
+            // Cada declaración o asignación guarda el contexto de ESE momento (evaluación perezosa): una instrucción
+            // posterior no cambia el valor con el que se calculó.
+            fun currentFrame() = Frame(m, mb, params, locals, callerFrame.depth + 1, false, HashMap(), opaque)
 
             val nodes = ArrayList<SemanticAstNode>()
             for (s in m.body) {
@@ -1341,13 +1538,35 @@ class SemanticAnalyzer(
                     is VarDeclStmt -> {
                         val b = tokenBinding[s.name.span.start.offset]
                         val init = s.init
-                        if (b != null && init != null) locals = locals + (b to (init to currentFrame()))
+                        if (b != null && init != null) {
+                            locals = locals + (b to (init to currentFrame()))
+                            opaque = opaque - b
+                        }
                     }
                     is AssignStmt -> {
+                        // Locales, parámetros y atributos: desde aquí el método usa el valor asignado.
                         val b = tokenBinding[s.target.span.start.offset]
-                        if (b != null && !b.isClassLevel) locals = locals + (b to (s.value to currentFrame()))
+                        if (b != null) {
+                            locals = locals + (b to (s.value to currentFrame()))
+                            opaque = opaque - b
+                        }
                     }
-                    is SoutStmt, is ExprStmt -> statementNode(s, currentFrame(), owner = mb)?.let { nodes += it }
+                    is SoutStmt -> statementNode(s, currentFrame(), owner = mb)?.let { nodes += it }
+                    is ExprStmt -> {
+                        val incremented = incrementedBinding(s.expr)
+                        if (incremented != null) {
+                            // `a++;` dentro de un método equivale a `a = a + 1;`: se sustituye donde se use `a`.
+                            locals = locals + (incremented to (s.expr to currentFrame()))
+                            opaque = opaque - incremented
+                        } else {
+                            statementNode(s, currentFrame(), owner = mb)?.let { nodes += it }
+                        }
+                    }
+                    is IfStmt, is WhileStmt, is DoWhileStmt, is ForStmt, is SwitchStmt -> {
+                        val values = opaqueValuesFor(s)
+                        locals = locals - values.keys
+                        opaque = opaque + values
+                    }
                     else -> Unit
                 }
             }

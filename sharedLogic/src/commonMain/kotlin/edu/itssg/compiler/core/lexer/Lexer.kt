@@ -241,7 +241,11 @@ class Lexer(
             recordAnomaly(
                 anomalies = anomalies,
                 lexeme = invalidLexeme,
-                justification = AcademicErrorTemplates.invalidIdentifier(invalidLexeme),
+                justification = if (AcademicErrorTemplates.isJavaNumericLiteral(invalidLexeme)) {
+                    AcademicErrorTemplates.unsupportedNumericLiteral(invalidLexeme)
+                } else {
+                    AcademicErrorTemplates.invalidIdentifier(invalidLexeme)
+                },
                 span = SourceSpan(startPos, cursor.currentPosition)
             )
             return

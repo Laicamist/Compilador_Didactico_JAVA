@@ -1,5 +1,6 @@
 package edu.itssg.compiler.core
 
+import edu.itssg.compiler.core.error.CompilerNote
 import edu.itssg.compiler.core.error.CompilerError
 import edu.itssg.compiler.core.error.ErrorPhaseType
 import edu.itssg.compiler.core.error.ErrorReporter
@@ -40,7 +41,9 @@ data class CompilationReport(
     val principalExpressionNotations: List<String>,
     val intermediateCode: IntermediateCodeBundle,
     val optimizationResult: OptimizationResult,
-    val quotaAbortedMessage: String? = null
+    val quotaAbortedMessage: String? = null,
+    /** Observaciones didácticas que no son errores ni bloquean el código intermedio ([CompilerNote]). */
+    val notes: List<CompilerNote> = emptyList()
 ) {
     val hasErrors: Boolean
         get() = errors.isNotEmpty() || quotaAbortedMessage != null
@@ -140,7 +143,8 @@ class JavaDidacticCompiler(
             principalExpressionNotations = semanticResult.principalExpressionNotations,
             intermediateCode = rawIrBundle,
             optimizationResult = optimizationResult,
-            quotaAbortedMessage = lexerResult.quotaAbortedMessage
+            quotaAbortedMessage = lexerResult.quotaAbortedMessage,
+            notes = semanticResult.notes
         )
     }
 
