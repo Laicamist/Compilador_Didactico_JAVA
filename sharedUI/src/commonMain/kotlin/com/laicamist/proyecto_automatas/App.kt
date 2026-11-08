@@ -25,8 +25,9 @@ import edu.itssg.compiler.ui.data.ThemeMode
 import edu.itssg.compiler.ui.di.AppContainer
 import edu.itssg.compiler.ui.files.SourceLoadResult
 import edu.itssg.compiler.ui.files.rememberSourceFilePicker
-import edu.itssg.compiler.ui.screens.ComingSoonScreen
+import edu.itssg.compiler.ui.history.HistoryScreen
 import edu.itssg.compiler.ui.screens.InterimHomeScreen
+import edu.itssg.compiler.ui.settings.SettingsScreen
 import edu.itssg.compiler.ui.theme.JAutomataTheme
 import edu.itssg.compiler.ui.viewmodel.AppScreen
 import edu.itssg.compiler.ui.workspace.WorkspaceScreen
@@ -35,8 +36,7 @@ import kotlinx.coroutines.launch
 /**
  * Raíz de la app. Crea los ViewModels (sobreviven a la rotación en Android) a partir del [container].
  *
- * Paso 3.2: tema J-Autómata, espacio de trabajo con el editor y un Inicio provisional. Historial y Ajustes
- * se muestran como pendientes hasta sus pasos.
+ * Pantallas: Inicio (provisional hasta el Inicio completo), espacio de trabajo, Historial y Ajustes.
  */
 @Composable
 fun App(container: AppContainer) {
@@ -61,6 +61,9 @@ fun App(container: AppContainer) {
     }
     LaunchedEffect(compilerViewModel) {
         compilerViewModel.messages.collect { showMessage(it.text, it.isError) }
+    }
+    LaunchedEffect(historyViewModel) {
+        historyViewModel.messages.collect { showMessage(it.text, it.isError) }
     }
 
     // Abrir desde el Inicio: carga el archivo en el espacio de trabajo y entra a él.
@@ -115,7 +118,9 @@ fun App(container: AppContainer) {
                                 }
                             },
                             onOpenFile = { replaceWork { homePicker.launch() } },
-                            onContinueWork = { appViewModel.navigateTo(AppScreen.WORKSPACE) }
+                            onContinueWork = { appViewModel.navigateTo(AppScreen.WORKSPACE) },
+                            onOpenHistory = { appViewModel.navigateTo(AppScreen.HISTORY) },
+                            onOpenSettings = { appViewModel.navigateTo(AppScreen.SETTINGS) }
                         )
                     }
 
@@ -129,16 +134,39 @@ fun App(container: AppContainer) {
                         onMessage = ::showMessage
                     )
 
-                    AppScreen.HISTORY -> ComingSoonScreen(
-                        title = "Historial",
-                        detail = "La pantalla del historial se implementa en un paso posterior de la Fase 3.",
-                        onBack = { appViewModel.navigateBack() }
+                    AppScreen.HISTORY -> HistoryScreen(
+                        state = historyState,
+                        nowMillis = container.nowMillis(),
+                        onBack = { appViewModel.navigateBack() },
+                        onQueryChange = historyViewModel::onQueryChange,
+                        onFilterChange = historyViewModel::onFilterChange,
+                        onSortChange = historyViewModel::onSortChange,
+                        onRetry = historyViewModel::refresh,
+                        onOpen = { session ->
+                            replaceWork {
+                                compilerViewModel.openSource(
+                                    title = session.title,
+                                    source = session.sourceCode,
+                                    alreadySaved = true
+                                )
+                                appViewModel.navigateTo(AppScreen.WORKSPACE)
+                            }
+                        },
+                        onRequestDelete = historyViewModel::requestDeletion,
+                        onConfirmDelete = historyViewModel::confirmDeletion,
+                        onCancelDelete = historyViewModel::cancelDeletion
                     )
 
-                    AppScreen.SETTINGS -> ComingSoonScreen(
-                        title = "Ajustes",
-                        detail = "La pantalla de ajustes se implementa en un paso posterior de la Fase 3.",
-                        onBack = { appViewModel.navigateBack() }
+                    AppScreen.SETTINGS -> SettingsScreen(
+                        settings = appState.settings,
+                        securityConfig = container.securityConfig,
+                        historyCount = if (historyState.isLoading && historyState.allSessions.isEmpty()) null
+                        else historyState.allSessions.size,
+                        onBack = { appViewModel.navigateBack() },
+                        onThemeModeChange = appViewModel::setThemeMode,
+                        onEditorFontSizeChange = appViewModel::setEditorFontSize,
+                        onAnimationsEnabledChange = appViewModel::setAnimationsEnabled,
+                        onClearHistory = historyViewModel::clearAll
                     )
                 }
             }

@@ -105,6 +105,32 @@ class HistoryViewModel(
         }
     }
 
+    /** Ajustes › Borrar historial (la pantalla de Ajustes pide confirmación antes). */
+    fun clearAll() {
+        if (deleteJob?.isActive == true) return
+        state.update { it.copy(pendingDeletion = null) }
+        deleteJob = viewModelScope.launch {
+            try {
+                val deleted = sessionStore.deleteAll()
+                messageChannel.trySend(
+                    UiMessage(
+                        when (deleted) {
+                            0 -> "El historial ya estaba vacío."
+                            1 -> "Se borró 1 sesión del historial."
+                            else -> "Se borraron $deleted sesiones del historial."
+                        }
+                    )
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                messageChannel.trySend(
+                    UiMessage("No se pudo borrar el historial: ${e.message ?: e::class.simpleName}", isError = true)
+                )
+            }
+        }
+    }
+
     private suspend fun reload() {
         state.update { it.copy(isLoading = true, loadError = null) }
         try {

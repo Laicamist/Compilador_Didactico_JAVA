@@ -77,6 +77,23 @@ insertSymbolEntry:
 INSERT INTO SymbolTableEntryEntity(session_id, symbol_index, lexeme, token_code, data_type, scope, line_number, column_number)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
+-- Resumen de cada sesión para el Historial en UNA consulta (antes eran 3 consultas por sesión que leían
+-- todos los renglones de errores y cuádruplos solo para contarlos).
+selectSessionSummaries:
+SELECT
+    s.id,
+    s.title,
+    s.source_code,
+    s.created_at,
+    s.has_errors,
+    (SELECT COUNT(*) FROM ErrorTableEntryEntity e WHERE e.session_id = s.id AND e.error_type = 'Léxico') AS lexical_errors,
+    (SELECT COUNT(*) FROM ErrorTableEntryEntity e WHERE e.session_id = s.id AND e.error_type = 'Sintáctico') AS syntactic_errors,
+    (SELECT COUNT(*) FROM ErrorTableEntryEntity e WHERE e.session_id = s.id AND e.error_type = 'Semántico') AS semantic_errors,
+    (SELECT COUNT(*) FROM IntermediateCodeEntity c WHERE c.session_id = s.id AND c.representation_kind = 'QUADRUPLE' AND c.is_optimized = 0) AS original_quadruples,
+    (SELECT COUNT(*) FROM IntermediateCodeEntity c WHERE c.session_id = s.id AND c.representation_kind = 'QUADRUPLE' AND c.is_optimized = 1) AS optimized_quadruples
+FROM CompilationSession s
+ORDER BY s.created_at DESC, s.id DESC;
+
 selectSymbolsBySession:
 SELECT * FROM SymbolTableEntryEntity WHERE session_id = ? ORDER BY id ASC;
 
@@ -98,6 +115,10 @@ ORDER BY id ASC;
 
 deleteSessionById:
 DELETE FROM CompilationSession WHERE id = ?;
+
+-- Ajustes › Borrar historial. Las tablas hijas se borran en cascada (foreign_keys activado en las tres fábricas).
+deleteAllSessions:
+DELETE FROM CompilationSession;
 
 selectAllSettings:
 SELECT * FROM AppSetting;

@@ -74,7 +74,8 @@ fun IntermediateCodePanel(
     firstError: CompilerError?,
     onFocus: (SourceSpan) -> Unit,
     onMessage: (String, Boolean) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    notice: String? = null
 ) {
     val colors = JAutomataTheme.colors
     if (blockedReason != null) {
@@ -92,6 +93,8 @@ fun IntermediateCodePanel(
                 colors.intermediate
             )
         }
+        // Estructuras de control que no se representan (observación del Analizador Semántico).
+        notice?.let { TableNotice(it, colors.semantic) }
         // Barra: formato, resumen y copiar.
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),

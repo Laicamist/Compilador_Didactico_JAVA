@@ -90,6 +90,29 @@ class CompilerSessionRepository(
         queries.selectAllSessions().executeAsList()
     }
 
+    /**
+     * Resumen de todas las sesiones (de la más reciente a la más antigua) con sus conteos de errores por tipo y de
+     * cuádruplos original/optimizado, calculados por SQLite en una sola consulta.
+     */
+    suspend fun getSessionSummaries(): List<SessionSummaryRow> = withContext(dispatcher) {
+        queries.selectSessionSummaries {
+                id, title, source_code, created_at, has_errors,
+                lexical_errors, syntactic_errors, semantic_errors, original_quadruples, optimized_quadruples ->
+            SessionSummaryRow(
+                id = id,
+                title = title,
+                sourceCode = source_code,
+                createdAtMillis = created_at,
+                hasErrors = has_errors != 0L,
+                lexicalErrorCount = lexical_errors.toInt(),
+                syntacticErrorCount = syntactic_errors.toInt(),
+                semanticErrorCount = semantic_errors.toInt(),
+                originalQuadrupleCount = original_quadruples.toInt(),
+                optimizedQuadrupleCount = optimized_quadruples.toInt()
+            )
+        }.executeAsList()
+    }
+
     suspend fun getSymbolsForSession(sessionId: Long): List<SymbolTableEntryEntity> = withContext(dispatcher) {
         queries.selectSymbolsBySession(sessionId).executeAsList()
     }
@@ -118,6 +141,15 @@ class CompilerSessionRepository(
      */
     suspend fun deleteSession(sessionId: Long): Boolean = withContext(dispatcher) {
         queries.deleteSessionById(sessionId).value > 0L
+    }
+
+    /**
+     * Borra todo el historial (Ajustes › Borrar historial); los ajustes de la app no se tocan.
+     *
+     * @return número de sesiones eliminadas.
+     */
+    suspend fun deleteAllSessions(): Long = withContext(dispatcher) {
+        queries.deleteAllSessions().value
     }
 
     /**
@@ -177,3 +209,17 @@ class CompilerSessionRepository(
         const val MAX_TITLE_LENGTH = 120
     }
 }
+
+/** Renglón del Historial: datos de la sesión y sus conteos, sin cargar las tablas completas. */
+data class SessionSummaryRow(
+    val id: Long,
+    val title: String,
+    val sourceCode: String,
+    val createdAtMillis: Long,
+    val hasErrors: Boolean,
+    val lexicalErrorCount: Int,
+    val syntacticErrorCount: Int,
+    val semanticErrorCount: Int,
+    val originalQuadrupleCount: Int,
+    val optimizedQuadrupleCount: Int
+)

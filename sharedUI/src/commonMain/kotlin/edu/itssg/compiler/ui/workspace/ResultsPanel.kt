@@ -121,6 +121,7 @@ internal fun ResultsPanel(
                     includeOptimized = state.isRevealed(CompilerPhase.OPTIMIZATION),
                     isStale = state.isReportStale,
                     firstError = state.visibleErrors.firstOrNull() ?: report.errors.firstOrNull(),
+                    notice = intermediateCodeNotice(state.visibleNotes),
                     onFocus = viewModel::focusOn,
                     onMessage = onMessage,
                     modifier = contentModifier

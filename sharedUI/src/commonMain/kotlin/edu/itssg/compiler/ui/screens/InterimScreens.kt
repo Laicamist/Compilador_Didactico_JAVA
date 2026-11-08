@@ -28,8 +28,8 @@ import edu.itssg.compiler.ui.theme.JAutomataFonts
 import edu.itssg.compiler.ui.theme.JAutomataTheme
 
 /**
- * Inicio provisional del Paso 3.2: da acceso al espacio de trabajo (nuevo, abrir archivo o continuar) y al
- * cambio de tema. La pantalla de Inicio completa de la especificación (fondo decorativo, línea de fases
+ * Inicio provisional del Paso 3.2: da acceso al espacio de trabajo (nuevo, abrir archivo o continuar), al
+ * Historial, a los Ajustes y al cambio de tema. La pantalla de Inicio completa de la especificación (fondo decorativo, línea de fases
  * animada, menú "¿Cómo funciona?" y tour) llega en un paso posterior.
  */
 @Composable
@@ -43,6 +43,8 @@ fun InterimHomeScreen(
     onNewWork: () -> Unit,
     onOpenFile: () -> Unit,
     onContinueWork: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = JAutomataTheme.colors
@@ -52,6 +54,9 @@ fun InterimHomeScreen(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            TextButton(onClick = onOpenHistory) { Text("Historial", fontSize = 13.sp, color = colors.textPrimary) }
+            TextButton(onClick = onOpenSettings) { Text("Ajustes", fontSize = 13.sp, color = colors.textPrimary) }
+            Text("·", fontSize = 12.sp, color = colors.textMuted)
             Text("Tema:", fontSize = 12.sp, color = colors.textMuted)
             ThemeMode.entries.forEach { mode ->
                 TextButton(onClick = { onThemeModeChange(mode) }) {
@@ -100,19 +105,5 @@ fun InterimHomeScreen(
             Text(demoSummary, fontSize = 12.sp, color = colors.textMuted, textAlign = TextAlign.Center)
             Text(historySummary, fontSize = 12.sp, color = colors.textMuted, textAlign = TextAlign.Center)
         }
-    }
-}
-
-/** Pantallas que todavía no se implementan (Historial y Ajustes). */
-@Composable
-fun ComingSoonScreen(title: String, detail: String, onBack: () -> Unit, modifier: Modifier = Modifier) {
-    val colors = JAutomataTheme.colors
-    Column(
-        modifier = modifier.fillMaxSize().background(colors.background).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        TextButton(onClick = onBack) { Text("← Volver", color = colors.textSecondary) }
-        Text(title, fontSize = 24.sp, fontWeight = FontWeight.Bold, fontFamily = JAutomataFonts.title, color = colors.textPrimary)
-        Text(detail, fontSize = 14.sp, color = colors.textSecondary)
     }
 }

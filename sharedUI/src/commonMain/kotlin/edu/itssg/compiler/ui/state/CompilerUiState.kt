@@ -2,6 +2,7 @@ package edu.itssg.compiler.ui.state
 
 import edu.itssg.compiler.core.CompilationReport
 import edu.itssg.compiler.core.error.CompilerError
+import edu.itssg.compiler.core.error.CompilerNote
 import edu.itssg.compiler.core.error.ErrorPhaseType
 import edu.itssg.compiler.core.ir.IrFormatKind
 import edu.itssg.compiler.core.lexer.LexicalAnomaly
@@ -141,6 +142,14 @@ data class CompilerUiState(
     fun phaseState(phase: CompilerPhase): PhaseState = phases[phase.ordinal]
 
     fun tableQuery(kind: DataTableKind): TableQuery = tableQueries[kind] ?: TableQuery()
+
+    /**
+     * Observaciones de la compilación (no son errores ni bloquean el código intermedio): estructuras de control que no
+     * se representan, división entre cero, recursión cortada. Salen del Analizador Semántico, así que se muestran
+     * cuando esa fase ya es visible.
+     */
+    val visibleNotes: List<CompilerNote>
+        get() = if (isRevealed(CompilerPhase.SEMANTIC)) report?.notes.orEmpty() else emptyList()
 
     /** Errores de las fases ya visibles, en el orden de la Tabla de Errores (línea, columna). */
     val visibleErrors: List<CompilerError>

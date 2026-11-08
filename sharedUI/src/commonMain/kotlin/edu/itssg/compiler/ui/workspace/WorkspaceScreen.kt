@@ -137,6 +137,8 @@ fun WorkspaceScreen(
     val errorRows = remember(state.report, state.compiledSource, state.sourceCode, state.highlightAnomalies, state.stepByStep) {
         if (reportIsCurrent) errorRowsFromReport(state.visibleErrors) else errorRowsFromAnomalies(state.highlightAnomalies)
     }
+    // Observaciones (no son errores): solo mientras el reporte corresponde al código del editor.
+    val notes = if (reportIsCurrent) state.visibleNotes else emptyList()
 
     Column(
         modifier
@@ -268,6 +270,10 @@ fun WorkspaceScreen(
                             modifier = Modifier.weight(1f - splitFraction).fillMaxHeight()
                         )
                     }
+                    if (notes.isNotEmpty()) {
+                        HorizontalDivider(color = colors.border)
+                        NotesStrip(notes = notes, onFocus = viewModel::focusOn)
+                    }
                     if (state.isErrorPanelExpanded) {
                         // Asa para cambiar la altura de la Tabla de Errores.
                         Box(
@@ -307,7 +313,12 @@ fun WorkspaceScreen(
                             modifier = it
                         )
                     },
-                    errors = { errorList(it, false) }
+                    errors = { tabModifier ->
+                        Column(tabModifier) {
+                            NotesStrip(notes = notes, onFocus = viewModel::focusOn)
+                            errorList(Modifier.fillMaxWidth().weight(1f), false)
+                        }
+                    }
                 )
             }
         }

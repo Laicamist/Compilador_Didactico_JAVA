@@ -1,8 +1,6 @@
 package edu.itssg.compiler.ui.data
 
 import edu.itssg.compiler.core.CompilationReport
-import edu.itssg.compiler.core.error.ErrorPhaseType
-import edu.itssg.compiler.core.ir.IrFormatKind
 import edu.itssg.compiler.data.db.CompilerSessionRepository
 import edu.itssg.compiler.ui.state.CompilerPhase
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -70,6 +68,9 @@ interface SessionStore {
 
     /** @return `true` si la sesión existía y se eliminó. */
     suspend fun delete(sessionId: Long): Boolean
+
+    /** Borra todo el historial (Ajustes). @return cuántas sesiones se eliminaron. */
+    suspend fun deleteAll(): Int
 }
 
 /** [SessionStore] respaldado por el [CompilerSessionRepository] de SQLDelight. */
@@ -86,28 +87,32 @@ class RepositorySessionStore(
         return id
     }
 
+    /** Una sola consulta con los conteos ya calculados por SQLite (ver `selectSessionSummaries`). */
     override suspend fun loadSummaries(): List<SavedSessionSummary> =
-        repository.getAllSavedSessions().map { session ->
-            val errorTypes = repository.getErrorsForSession(session.id).map { it.error_type }
+        repository.getSessionSummaries().map { row ->
             SavedSessionSummary(
-                id = session.id,
-                title = session.title,
-                sourceCode = session.source_code,
-                createdAtMillis = session.created_at,
-                hasErrors = session.has_errors != 0L,
-                lexicalErrorCount = errorTypes.count { it == ErrorPhaseType.LEXICAL.displayName },
-                syntacticErrorCount = errorTypes.count { it == ErrorPhaseType.SYNTACTIC.displayName },
-                semanticErrorCount = errorTypes.count { it == ErrorPhaseType.SEMANTIC.displayName },
-                originalInstructionCount = repository
-                    .getIntermediateCodeForSession(session.id, IrFormatKind.QUADRUPLE, isOptimized = false).size,
-                optimizedInstructionCount = repository
-                    .getIntermediateCodeForSession(session.id, IrFormatKind.QUADRUPLE, isOptimized = true).size
+                id = row.id,
+                title = row.title,
+                sourceCode = row.sourceCode,
+                createdAtMillis = row.createdAtMillis,
+                hasErrors = row.hasErrors,
+                lexicalErrorCount = row.lexicalErrorCount,
+                syntacticErrorCount = row.syntacticErrorCount,
+                semanticErrorCount = row.semanticErrorCount,
+                originalInstructionCount = row.originalQuadrupleCount,
+                optimizedInstructionCount = row.optimizedQuadrupleCount
             )
         }
 
     override suspend fun delete(sessionId: Long): Boolean {
         val deleted = repository.deleteSession(sessionId)
         if (deleted) revisionState.update { it + 1 }
+        return deleted
+    }
+
+    override suspend fun deleteAll(): Int {
+        val deleted = repository.deleteAllSessions().toInt()
+        revisionState.update { it + 1 }
         return deleted
     }
 }

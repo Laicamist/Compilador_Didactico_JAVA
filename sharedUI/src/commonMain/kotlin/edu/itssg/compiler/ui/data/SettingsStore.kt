@@ -3,6 +3,7 @@ package edu.itssg.compiler.ui.data
 import edu.itssg.compiler.data.db.AppSettingsRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -49,6 +50,9 @@ interface SettingsStore {
     val isLoaded: StateFlow<Boolean>
 
     fun update(transform: (AppSettings) -> AppSettings)
+
+    /** Espera a que se guarden los cambios pendientes (al cerrar la app). Por defecto no hay nada que esperar. */
+    suspend fun flush() {}
 }
 
 /** Implementación en memoria: las preferencias duran mientras la app está abierta (útil en pruebas). */
@@ -80,7 +84,13 @@ class PersistentSettingsStore(
     private val loaded = MutableStateFlow(false)
     override val isLoaded: StateFlow<Boolean> = loaded.asStateFlow()
 
-    private val updates = Channel<(AppSettings) -> AppSettings>(Channel.UNLIMITED)
+    /** Cambios y peticiones de [flush], en orden: un flush se completa después de guardar todo lo anterior. */
+    private sealed interface Op {
+        class Update(val transform: (AppSettings) -> AppSettings) : Op
+        class Flush(val done: CompletableDeferred<Unit>) : Op
+    }
+
+    private val updates = Channel<Op>(Channel.UNLIMITED)
 
     init {
         scope.launch {
@@ -93,7 +103,12 @@ class PersistentSettingsStore(
             }
             loaded.value = true
 
-            for (transform in updates) {
+            for (op in updates) {
+                if (op is Op.Flush) {
+                    op.done.complete(Unit)
+                    continue
+                }
+                val transform = (op as Op.Update).transform
                 val next = transform(state.value).normalized()
                 if (next == state.value) continue
                 state.value = next
@@ -109,7 +124,12 @@ class PersistentSettingsStore(
     }
 
     override fun update(transform: (AppSettings) -> AppSettings) {
-        updates.trySend(transform)
+        updates.trySend(Op.Update(transform))
+    }
+
+    override suspend fun flush() {
+        val done = CompletableDeferred<Unit>()
+        if (updates.trySend(Op.Flush(done)).isSuccess) done.await()
     }
 }
 

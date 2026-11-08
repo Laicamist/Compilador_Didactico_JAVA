@@ -18,6 +18,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 
@@ -62,7 +63,16 @@ class AppContainer(
     fun createHistoryViewModel(): HistoryViewModel =
         HistoryViewModel(sessionStore)
 
-    /** Detiene el trabajo de fondo y cierra la base de datos si llegó a abrirse (Desktop, al cerrar la ventana). */
+    /**
+     * Cierre ordenado (Desktop, al cerrar la ventana): primero espera, a lo más [timeoutMillis], a que se guarde el
+     * último cambio de ajustes (antes se perdía si se cerraba justo después de cambiarlo) y luego [close].
+     */
+    suspend fun shutdown(timeoutMillis: Long = 1_500) {
+        withTimeoutOrNull(timeoutMillis) { settingsStore.flush() }
+        close()
+    }
+
+    /** Detiene el trabajo de fondo y cierra la base de datos si llegó a abrirse. */
     fun close() {
         appScope.cancel()
         databaseProvider.close()
