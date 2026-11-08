@@ -176,7 +176,7 @@ fun SettingsScreen(
                         Text("Created by: Laicamist", fontSize = 13.sp, color = colors.textSecondary)
                         Spacer(Modifier.size(4.dp))
                         Text(
-                            "Tipografías Alice y Sora bajo la SIL Open Font License 1.1 (el texto de las licencias va " +
+                            "Tipografías Alice, Sora y JetBrains Mono bajo la SIL Open Font License 1.1 (el texto de las licencias va " +
                                 "incluido en la app, en files/licencias).",
                             fontSize = 12.sp,
                             color = colors.textMuted

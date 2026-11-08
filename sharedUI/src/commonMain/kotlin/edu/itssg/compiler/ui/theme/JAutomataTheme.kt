@@ -23,6 +23,8 @@ import edu.itssg.compiler.ui.state.CompilerPhase
 import org.jetbrains.compose.resources.Font
 import proyecto_automatas.sharedui.generated.resources.Res
 import proyecto_automatas.sharedui.generated.resources.alice_regular
+import proyecto_automatas.sharedui.generated.resources.jetbrains_mono_bold
+import proyecto_automatas.sharedui.generated.resources.jetbrains_mono_regular
 import proyecto_automatas.sharedui.generated.resources.sora_bold
 import proyecto_automatas.sharedui.generated.resources.sora_medium
 import proyecto_automatas.sharedui.generated.resources.sora_regular
@@ -122,8 +124,9 @@ data class SyntaxColors(
  * Las fuentes de recursos se cargan dentro de la composición, por eso [text] y [title] son `@Composable` y
  * se leen de [LocalJAutomataFontFamilies], que llena [JAutomataTheme].
  *
- * [code] sigue siendo la monoespaciada del sistema hasta agregar JetBrains Mono. Es un valor normal (no
- * `@Composable`) porque el editor arma su `TextStyle` dentro de `remember`.
+ * [code] es JetBrains Mono (también OFL 1.1). Es un valor normal (no `@Composable`) porque el editor arma su
+ * `TextStyle` dentro de `remember`: [JAutomataTheme] lo actualiza al cargar la fuente (en Desktop y Android la carga
+ * es inmediata); antes de eso, y fuera del tema, es la monoespaciada del sistema.
  */
 object JAutomataFonts {
     val text: FontFamily
@@ -134,18 +137,19 @@ object JAutomataFonts {
         @Composable @ReadOnlyComposable
         get() = LocalJAutomataFontFamilies.current.title
 
-    val code: FontFamily = FontFamily.Monospace
+    var code: FontFamily = FontFamily.Monospace
+        internal set
 }
 
 @Immutable
-class JAutomataFontFamilies(val text: FontFamily, val title: FontFamily)
+class JAutomataFontFamilies(val text: FontFamily, val title: FontFamily, val code: FontFamily = FontFamily.Monospace)
 
 /** Valor por defecto (fuentes del sistema) para vistas previas o pantallas fuera de [JAutomataTheme]. */
 val LocalJAutomataFontFamilies = staticCompositionLocalOf {
     JAutomataFontFamilies(text = FontFamily.Serif, title = FontFamily.SansSerif)
 }
 
-/** Carga Alice y los pesos de Sora (Regular 400, Medium 500, SemiBold 600, Bold 700) una sola vez. */
+/** Carga Alice, los pesos de Sora (Regular 400, Medium 500, SemiBold 600, Bold 700) y JetBrains Mono una sola vez. */
 @Composable
 private fun rememberJAutomataFontFamilies(): JAutomataFontFamilies {
     val alice = Font(Res.font.alice_regular, FontWeight.Normal)
@@ -153,10 +157,13 @@ private fun rememberJAutomataFontFamilies(): JAutomataFontFamilies {
     val soraMedium = Font(Res.font.sora_medium, FontWeight.Medium)
     val soraSemiBold = Font(Res.font.sora_semibold, FontWeight.SemiBold)
     val soraBold = Font(Res.font.sora_bold, FontWeight.Bold)
-    return remember(alice, soraRegular, soraMedium, soraSemiBold, soraBold) {
+    val monoRegular = Font(Res.font.jetbrains_mono_regular, FontWeight.Normal)
+    val monoBold = Font(Res.font.jetbrains_mono_bold, FontWeight.Bold)
+    return remember(alice, soraRegular, soraMedium, soraSemiBold, soraBold, monoRegular, monoBold) {
         JAutomataFontFamilies(
             text = FontFamily(alice),
-            title = FontFamily(soraRegular, soraMedium, soraSemiBold, soraBold)
+            title = FontFamily(soraRegular, soraMedium, soraSemiBold, soraBold),
+            code = FontFamily(monoRegular, monoBold)
         )
     }
 }
@@ -340,6 +347,8 @@ fun JAutomataTheme(themeMode: ThemeMode, content: @Composable () -> Unit) {
     val selectionColors = TextSelectionColors(handleColor = colors.accent, backgroundColor = colors.selection)
 
     val fonts = rememberJAutomataFontFamilies()
+    // El código (editor, tablas, árboles) usa JetBrains Mono desde la primera composición.
+    JAutomataFonts.code = fonts.code
     val typography = remember(fonts) { jAutomataTypography(fonts) }
 
     MaterialTheme(colorScheme = scheme, typography = typography) {
