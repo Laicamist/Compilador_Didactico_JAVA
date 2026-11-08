@@ -54,6 +54,7 @@ import edu.itssg.compiler.ui.viewmodel.HistoryUiState
  * las fases (✓ / ✗ / bloqueada), los errores por tipo y los cuádruplos original → optimizado.
  *
  * @param onOpen Reabrir la sesión en el espacio de trabajo (la app confirma antes si hay cambios sin guardar).
+ * @param onExport Exportar la sesión (la app la vuelve a compilar y abre el diálogo Exportar).
  * @param nowMillis Hora actual, para "Hoy" / "Ayer".
  */
 @Composable
@@ -66,6 +67,7 @@ fun HistoryScreen(
     onSortChange: (HistorySort) -> Unit,
     onRetry: () -> Unit,
     onOpen: (SavedSessionSummary) -> Unit,
+    onExport: (SavedSessionSummary) -> Unit,
     onRequestDelete: (SavedSessionSummary) -> Unit,
     onConfirmDelete: () -> Unit,
     onCancelDelete: () -> Unit,
@@ -131,6 +133,7 @@ fun HistoryScreen(
                                 session = session,
                                 nowMillis = nowMillis,
                                 onOpen = { onOpen(session) },
+                                onExport = { onExport(session) },
                                 onDelete = { onRequestDelete(session) }
                             )
                         }
@@ -216,6 +219,7 @@ private fun SessionCard(
     session: SavedSessionSummary,
     nowMillis: Long,
     onOpen: () -> Unit,
+    onExport: () -> Unit,
     onDelete: () -> Unit
 ) {
     val colors = JAutomataTheme.colors
@@ -286,6 +290,7 @@ private fun SessionCard(
             )
             Text(instructionSummary(session), fontSize = 12.sp, color = colors.textSecondary, modifier = Modifier.weight(1f))
             TextButton(onClick = onDelete) { Text("Eliminar", color = colors.errorLexical, fontSize = 13.sp) }
+            TextButton(onClick = onExport) { Text("Exportar", color = colors.textPrimary, fontSize = 13.sp) }
             Button(
                 onClick = onOpen,
                 colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.onAccent)

@@ -49,7 +49,7 @@ import kotlin.math.roundToInt
 
 /**
  * Pantalla de Ajustes: apariencia (tema, letra del editor, animaciones), límites de seguridad del motor (solo
- * lectura), datos (borrar historial) y "Acerca de". Cada cambio se guarda al momento en la tabla `AppSetting`.
+ * lectura), datos (borrar historial, repetir el tour) y "Acerca de". Cada cambio se guarda al momento en la tabla `AppSetting`.
  *
  * @param historyCount Sesiones guardadas (para el texto y para habilitar "Borrar historial"); `null` mientras se lee.
  */
@@ -63,6 +63,7 @@ fun SettingsScreen(
     onEditorFontSizeChange: (Int) -> Unit,
     onAnimationsEnabledChange: (Boolean) -> Unit,
     onClearHistory: () -> Unit,
+    onRestartTour: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = JAutomataTheme.colors
@@ -158,6 +159,13 @@ fun SettingsScreen(
                             onClick = { confirmClear = true },
                             enabled = (historyCount ?: 0) > 0
                         ) { Text("Borrar", color = if ((historyCount ?: 0) > 0) colors.errorLexical else colors.textMuted) }
+                    }
+                    RowDivider()
+                    SettingRow(
+                        title = "Repetir el tour",
+                        detail = "Vuelve al Inicio y muestra otra vez los globos de bienvenida."
+                    ) {
+                        OutlinedButton(onClick = onRestartTour) { Text("Repetir", color = colors.textPrimary) }
                     }
                 }
 

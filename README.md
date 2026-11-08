@@ -12,7 +12,7 @@ Simulador didáctico del compilador de Java para la materia **Lenguajes y Autóm
 | Código intermedio | Triplos, cuádruplos y 3 direcciones (T1–T3, `free`, pendientes `Pn`) |
 | Optimización (U3) | `SE`, `FO`, `PC`, `RS`, `CM` y su variante `D`, con la tabla de la materia |
 
-Además: editor con resaltado, errores en línea, deshacer/rehacer, buscar y reemplazar; paneles tabulares que se pueden filtrar, ordenar y copiar; visor de árboles con zoom, plegado, minimapa y recorrido animado (derivación, cuádruplos y 3 direcciones); historial y ajustes guardados con SQLDelight.
+Además: editor con resaltado, errores en línea, deshacer/rehacer, buscar y reemplazar; paneles tabulares que se pueden filtrar, ordenar y copiar; visor de árboles con zoom, plegado, minimapa y recorrido animado (derivación, cuádruplos y 3 direcciones); historial y ajustes guardados con SQLDelight; exportación a PDF, CSV, PNG/SVG y `.java` (en Desktop a `Documentos/J-Autómata Studio`, en Android a `Descargas/J-Autómata Studio`).
 
 ## Estructura
 
@@ -51,8 +51,9 @@ En Windows usa `gradlew.bat` en lugar de `./gradlew`.
 
 ## Estado
 
-- Fase 2 (backend) y Pasos 3.1–3.4 del frontend implementados.
-- Pendiente: pantallas completas de Inicio, Historial y Ajustes; exportación (PDF, CSV, PNG, `.java`); empaquetado de escritorio; iOS.
+- Fase 2 (backend) y Fase 3 (frontend) implementadas: Inicio con hojas "¿Cómo funciona?" y tour, espacio de trabajo,
+  paneles tabulares, visor de árboles, Historial, Ajustes y exportación (PDF, CSV, PNG/SVG de los árboles y `.java`).
+- Pendiente: empaquetado de escritorio, ajustes finales de Android e iOS.
 
 ---
 

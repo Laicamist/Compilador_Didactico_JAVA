@@ -87,10 +87,11 @@ import kotlinx.coroutines.launch
  * ([ResultsPanel]: Tokens, Símbolos, Árbol y Código intermedio) y abajo la Tabla de Errores plegable y con
  * altura ajustable. El visor de árboles (Paso 3.4) marca en el editor el fragmento del nodo elegido.
  *
- * Atajos: Ctrl+S guardar · Ctrl+O abrir · F5 o Ctrl+Enter compilar todo · F6 paso a paso.
+ * Atajos: Ctrl+S guardar · Ctrl+O abrir · Ctrl+E exportar · F5 o Ctrl+Enter compilar todo · F6 paso a paso.
  * Volver al Inicio no descarta nada: el trabajo sigue en el ViewModel y se puede continuar desde ahí.
  *
  * @param onMessage Muestra un aviso breve (snackbar).
+ * @param onExport Abre el diálogo Exportar con la última compilación (lo muestra la app).
  */
 @Composable
 fun WorkspaceScreen(
@@ -101,6 +102,7 @@ fun WorkspaceScreen(
     onFontSizeChange: (Int) -> Unit,
     onNavigateHome: () -> Unit,
     onMessage: (text: String, isError: Boolean) -> Unit,
+    onExport: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = JAutomataTheme.colors
@@ -150,6 +152,10 @@ fun WorkspaceScreen(
                 when {
                     ctrl && event.key == Key.S -> { viewModel.saveSession(); true }
                     ctrl && event.key == Key.O -> { openFile(); true }
+                    ctrl && event.key == Key.E -> {
+                        if (state.report != null && !state.isCompiling) onExport()
+                        true
+                    }
                     event.key == Key.F5 || (ctrl && (event.key == Key.Enter || event.key == Key.NumPadEnter)) -> {
                         viewModel.compileAll()
                         true
@@ -165,6 +171,7 @@ fun WorkspaceScreen(
             onRename = { showRename = true },
             onOpen = ::openFile,
             onSave = { viewModel.saveSession() },
+            onExport = onExport,
             onStepByStep = viewModel::startStepByStep,
             onCompile = viewModel::compileAll,
             onCancel = viewModel::cancelCompilation
@@ -366,6 +373,7 @@ private fun WorkspaceTopBar(
     onRename: () -> Unit,
     onOpen: () -> Unit,
     onSave: () -> Unit,
+    onExport: () -> Unit,
     onStepByStep: () -> Unit,
     onCompile: () -> Unit,
     onCancel: () -> Unit
@@ -412,7 +420,7 @@ private fun WorkspaceTopBar(
                 }
                 Text("Guardar", color = colors.textPrimary)
             }
-            TextButton(onClick = {}, enabled = false) { Text("Exportar") }
+            TextButton(onClick = onExport, enabled = state.report != null && !state.isCompiling) { Text("Exportar") }
             if (state.isCompiling) {
                 OutlinedButton(onClick = onCancel) { Text("■ Cancelar") }
             } else {

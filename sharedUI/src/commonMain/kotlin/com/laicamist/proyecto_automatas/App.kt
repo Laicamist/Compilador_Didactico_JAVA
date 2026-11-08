@@ -23,20 +23,27 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import edu.itssg.compiler.ui.data.ThemeMode
 import edu.itssg.compiler.ui.di.AppContainer
+import edu.itssg.compiler.ui.export.ExportDialog
+import edu.itssg.compiler.ui.export.ExportTarget
 import edu.itssg.compiler.ui.files.SourceLoadResult
 import edu.itssg.compiler.ui.files.rememberSourceFilePicker
 import edu.itssg.compiler.ui.history.HistoryScreen
-import edu.itssg.compiler.ui.screens.InterimHomeScreen
+import edu.itssg.compiler.ui.home.HomeScreen
+import edu.itssg.compiler.ui.state.ResultTab
+import edu.itssg.compiler.ui.state.TreeKind
+import edu.itssg.compiler.ui.viewmodel.AppViewModel
+import edu.itssg.compiler.ui.viewmodel.HelpTopic
 import edu.itssg.compiler.ui.settings.SettingsScreen
 import edu.itssg.compiler.ui.theme.JAutomataTheme
 import edu.itssg.compiler.ui.viewmodel.AppScreen
 import edu.itssg.compiler.ui.workspace.WorkspaceScreen
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
  * Raíz de la app. Crea los ViewModels (sobreviven a la rotación en Android) a partir del [container].
  *
- * Pantallas: Inicio (provisional hasta el Inicio completo), espacio de trabajo, Historial y Ajustes.
+ * Pantallas: Inicio (con las hojas "¿Cómo funciona?" y el tour), espacio de trabajo, Historial y Ajustes.
  */
 @Composable
 fun App(container: AppContainer) {
@@ -79,6 +86,20 @@ fun App(container: AppContainer) {
     }
     /** Acción del Inicio que reemplaza un trabajo con cambios sin guardar (se confirma antes). */
     var pendingHomeAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    /** Compilación que se está exportando (diálogo Exportar), desde el espacio de trabajo o el Historial. */
+    var exportTarget by remember { mutableStateOf<ExportTarget?>(null) }
+    fun exportSession(title: String, source: String) {
+        scope.launch {
+            try {
+                exportTarget = ExportTarget(title, container.compilerFactory().compileAsync(source))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                showMessage("No se pudo compilar “$title” para exportarlo: ${e.message ?: e::class.simpleName}", true)
+            }
+        }
+    }
     fun replaceWork(action: () -> Unit) {
         if (workspaceState.hasUnsavedChanges) pendingHomeAction = action else action()
     }
@@ -94,35 +115,52 @@ fun App(container: AppContainer) {
             Box(Modifier.fillMaxSize().background(colors.background).padding(padding)) {
                 if (!appState.settingsLoaded) return@Box
                 when (appState.currentScreen) {
-                    AppScreen.HOME -> {
-                        val demo = appState.demo
-                        InterimHomeScreen(
-                            themeMode = appState.settings.themeMode,
-                            onThemeModeChange = appViewModel::setThemeMode,
-                            demoSummary = when {
-                                demo.isLoading -> "Compilando el ejemplo del Inicio…"
-                                demo.failure != null -> "El ejemplo no compiló: ${demo.failure}"
-                                else -> "Ejemplo “${demo.focusStatement}”: ${demo.report?.tokens?.size ?: 0} tokens, " +
-                                        "${demo.report?.intermediateCode?.quadruples?.size ?: 0} cuádruplos"
-                            },
-                            historySummary = when {
-                                historyState.isLoading -> "Leyendo historial…"
-                                else -> historyState.loadError ?: "Sesiones en el historial: ${historyState.allSessions.size}"
-                            },
-                            hasWorkInProgress = workspaceState.sourceCode.isNotBlank(),
-                            workInProgressTitle = workspaceState.sessionTitle,
-                            onNewWork = {
-                                replaceWork {
-                                    compilerViewModel.newWork()
-                                    appViewModel.navigateTo(AppScreen.WORKSPACE)
+                    AppScreen.HOME -> HomeScreen(
+                        themeMode = appState.settings.themeMode,
+                        animationsEnabled = appState.settings.animationsEnabled,
+                        demo = appState.demo,
+                        openHelpTopic = appState.openHelpTopic,
+                        tourStep = appState.tourStep,
+                        historySummary = when {
+                            historyState.isLoading && historyState.allSessions.isEmpty() -> "Leyendo historial…"
+                            historyState.loadError != null -> historyState.loadError ?: ""
+                            historyState.allSessions.isEmpty() -> "Aún no hay sesiones guardadas."
+                            historyState.allSessions.size == 1 -> "1 sesión en el historial"
+                            else -> "${historyState.allSessions.size} sesiones en el historial"
+                        },
+                        hasWorkInProgress = workspaceState.sourceCode.isNotBlank(),
+                        workInProgressTitle = workspaceState.sessionTitle,
+                        onThemeModeChange = appViewModel::setThemeMode,
+                        onNewWork = {
+                            replaceWork {
+                                compilerViewModel.newWork()
+                                appViewModel.navigateTo(AppScreen.WORKSPACE)
+                            }
+                        },
+                        onOpenFile = { replaceWork { homePicker.launch() } },
+                        onContinueWork = { appViewModel.navigateTo(AppScreen.WORKSPACE) },
+                        onOpenHistory = { appViewModel.navigateTo(AppScreen.HISTORY) },
+                        onOpenSettings = { appViewModel.navigateTo(AppScreen.SETTINGS) },
+                        onOpenHelp = appViewModel::openHelp,
+                        onCloseHelp = appViewModel::closeHelp,
+                        onPreviousHelp = appViewModel::previousHelpTopic,
+                        onNextHelp = appViewModel::nextHelpTopic,
+                        onSeeExample = { content ->
+                            // Abre el ejemplo del Inicio en el espacio de trabajo, en el panel del tema.
+                            replaceWork {
+                                compilerViewModel.openSource(title = "Demo.java", source = AppViewModel.DEMO_SOURCE)
+                                compilerViewModel.onTabSelected(content.exampleTab)
+                                if (content.exampleTab == ResultTab.TREE) {
+                                    compilerViewModel.onTreeKindSelected(
+                                        if (content.topic == HelpTopic.TREE) TreeKind.SEMANTIC else TreeKind.SYNTACTIC
+                                    )
                                 }
-                            },
-                            onOpenFile = { replaceWork { homePicker.launch() } },
-                            onContinueWork = { appViewModel.navigateTo(AppScreen.WORKSPACE) },
-                            onOpenHistory = { appViewModel.navigateTo(AppScreen.HISTORY) },
-                            onOpenSettings = { appViewModel.navigateTo(AppScreen.SETTINGS) }
-                        )
-                    }
+                                appViewModel.navigateTo(AppScreen.WORKSPACE)
+                            }
+                        },
+                        onTourNext = appViewModel::nextTourStep,
+                        onTourSkip = appViewModel::finishTour
+                    )
 
                     AppScreen.WORKSPACE -> WorkspaceScreen(
                         state = workspaceState,
@@ -131,7 +169,18 @@ fun App(container: AppContainer) {
                         securityConfig = container.securityConfig,
                         onFontSizeChange = appViewModel::setEditorFontSize,
                         onNavigateHome = { appViewModel.navigateTo(AppScreen.HOME) },
-                        onMessage = ::showMessage
+                        onMessage = ::showMessage,
+                        onExport = {
+                            workspaceState.report?.let { report ->
+                                exportTarget = ExportTarget(
+                                    title = workspaceState.sessionTitle,
+                                    report = report,
+                                    notice = if (workspaceState.isReportStale) {
+                                        "El código cambió desde la última compilación: se exporta la versión compilada."
+                                    } else null
+                                )
+                            }
+                        }
                     )
 
                     AppScreen.HISTORY -> HistoryScreen(
@@ -152,6 +201,7 @@ fun App(container: AppContainer) {
                                 appViewModel.navigateTo(AppScreen.WORKSPACE)
                             }
                         },
+                        onExport = { session -> exportSession(session.title, session.sourceCode) },
                         onRequestDelete = historyViewModel::requestDeletion,
                         onConfirmDelete = historyViewModel::confirmDeletion,
                         onCancelDelete = historyViewModel::cancelDeletion
@@ -166,9 +216,19 @@ fun App(container: AppContainer) {
                         onThemeModeChange = appViewModel::setThemeMode,
                         onEditorFontSizeChange = appViewModel::setEditorFontSize,
                         onAnimationsEnabledChange = appViewModel::setAnimationsEnabled,
-                        onClearHistory = historyViewModel::clearAll
+                        onClearHistory = historyViewModel::clearAll,
+                        onRestartTour = appViewModel::restartTour
                     )
                 }
+            }
+
+            exportTarget?.let { target ->
+                ExportDialog(
+                    target = target,
+                    nowMillis = container.nowMillis,
+                    onDismiss = { exportTarget = null },
+                    onMessage = ::showMessage
+                )
             }
 
             pendingHomeAction?.let { action ->
