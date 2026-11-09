@@ -919,6 +919,12 @@ class SemanticAnalyzer(
         /** Variables del main que quedaron con valor desconocido tras una estructura de control. */
         private val mainOpaque = HashMap<Binding, EvaluatedValue>()
 
+        /** Pasos de `a++` usados dentro de una instrucción del main; se agregan al árbol antes de ella. */
+        private val pendingIncrements = ArrayList<SemanticAstNode>()
+
+        /** Incrementos del main ya aplicados (por posición del operador): valor anterior y paso del incremento. */
+        private val appliedIncrements = HashMap<Int, Pair<SemanticAstNode, SemanticAstNode>>()
+
         /** Observaciones sin repetir (una por tipo y posición), en orden de aparición. */
         private val noteMap = LinkedHashMap<Pair<CompilerNoteKind, Int>, CompilerNote>()
 
@@ -957,7 +963,12 @@ class SemanticAnalyzer(
             if (main != null) {
                 val frame = Frame(null, null, emptyMap(), emptyMap(), 0, true, HashMap(), mainOpaque)
                 for (s in main.body) {
-                    statementNode(s, frame, owner = null)?.let { children += it }
+                    val node = statementNode(s, frame, owner = null)
+                    // `y = x++;`: el paso del incremento va antes de la instrucción (como `iinc` en Java) y la
+                    // instrucción sigue usando el valor anterior de x, así ninguna referencia apunta hacia adelante.
+                    children += pendingIncrements
+                    pendingIncrements.clear()
+                    node?.let { children += it }
                 }
             }
             val last = children.lastOrNull()
@@ -994,15 +1005,24 @@ class SemanticAnalyzer(
             is VarDeclStmt -> {
                 val b = tokenBinding[s.name.span.start.offset]
                 val init = s.init
-                if (b == null || init == null || !frame.isMain) null
+                // Un valor que el sintáctico no pudo derivar completo (ErrorExpr) no se representa: el ID queda sin valor.
+                if (b == null || init == null || init is ErrorExpr || !frame.isMain) null
                 else assignment(b, expand(init, frame), s.span).also { frame.materialized[b] = it }
             }
             is AssignStmt -> {
                 val b = tokenBinding[s.target.span.start.offset]
-                if (b == null || !frame.isMain) null
-                else assignment(b, expand(s.value, frame), s.span).also {
-                    frame.materialized[b] = it
-                    mainOpaque.remove(b)
+                when {
+                    b == null || !frame.isMain -> null
+                    // Asignación incompleta (`y = a ? 1 : 0;`, `x += 4;`): desde aquí el valor del ID es desconocido.
+                    s.value is ErrorExpr -> {
+                        frame.materialized.remove(b)
+                        mainOpaque[b] = EvaluatedValue.UnknownVal
+                        null
+                    }
+                    else -> assignment(b, expand(s.value, frame), s.span).also {
+                        frame.materialized[b] = it
+                        mainOpaque.remove(b)
+                    }
                 }
             }
             is ObjDeclStmt -> {
@@ -1021,14 +1041,17 @@ class SemanticAnalyzer(
                 }
             }
             is ExprStmt -> {
-                val node = expand(s.expr, frame)
                 // `a++;` / `--a;` como instrucción del main: los usos siguientes de `a` reutilizan este paso.
+                // (Como instrucción, `a++` y `++a` son lo mismo: no hay un valor anterior que se use.)
                 val incremented = incrementedBinding(s.expr)
                 if (frame.isMain && incremented != null) {
-                    frame.materialized[incremented] = node
-                    mainOpaque.remove(incremented)
+                    incrementNode(s.expr as UnaryExpr, frame).also {
+                        frame.materialized[incremented] = it
+                        mainOpaque.remove(incremented)
+                    }
+                } else {
+                    expand(s.expr, frame)
                 }
-                node
             }
             is IfStmt, is WhileStmt, is DoWhileStmt, is ForStmt, is SwitchStmt -> {
                 if (frame.isMain) {
@@ -1040,6 +1063,36 @@ class SemanticAnalyzer(
                 null
             }
             else -> null
+        }
+
+        /**
+         * Separa los `++`/`--` sobre variables que hay dentro de [expr] (para los métodos, que sustituyen valores):
+         * regresa la expresión con cada postfijo `a++` cambiado por `a` (Java usa el valor anterior) y cada prefijo
+         * intacto, más la lista de incrementos en forma prefija para aplicarlos después de la instrucción.
+         */
+        private fun splitIncrements(expr: Expr): Pair<Expr, List<UnaryExpr>> {
+            val increments = ArrayList<UnaryExpr>()
+            fun walk(e: Expr): Expr = when (e) {
+                is UnaryExpr -> {
+                    val isStep = e.operator.category == TokenCategory.INC || e.operator.category == TokenCategory.DEC
+                    when {
+                        isStep && e.operand is NameExpr -> {
+                            increments += if (e.isPrefix) e else e.copy(isPrefix = true)
+                            if (e.isPrefix) e else e.operand
+                        }
+                        else -> e.copy(operand = walk(e.operand))
+                    }
+                }
+                is BinaryExpr -> e.copy(left = walk(e.left), right = walk(e.right))
+                is CastExpr -> e.copy(operand = walk(e.operand))
+                is GroupExpr -> e.copy(inner = walk(e.inner))
+                is NewExpr -> e.copy(args = e.args.map(::walk))
+                is AccessExpr -> e.copy(target = walk(e.target), args = e.args?.map(::walk))
+                is CallExpr -> e.copy(args = e.args.map(::walk))
+                else -> e
+            }
+            val rewritten = walk(expr)
+            return if (increments.isEmpty()) expr to emptyList() else rewritten to increments
         }
 
         /** Símbolo que incrementa o decrementa una instrucción `a++`, `++a`, `a--` o `--a` (si lo es). */
@@ -1297,23 +1350,61 @@ class SemanticAnalyzer(
             return assignment(b, valueNode, span)
         }
 
+        /**
+         * Paso de `++a` / `a--`: `(1, +, a)` o `(a, -, 1)` (U2, clase A: `int uno = ++a;` → `(1, +, ID2)`). En la resta
+         * el 1 va a la derecha porque no es conmutativa.
+         */
+        private fun incrementNode(expr: UnaryExpr, frame: Frame): SemanticAstNode {
+            val op = expr.operator
+            val operand = expand(expr.operand, frame)
+            val one = leaf(SemanticNodeKind.LITERAL_VALUE, "1", EvaluatedValue.IntVal(1), op.span)
+            val sym = if (op.category == TokenCategory.INC) "+" else "-"
+            val children = if (sym == "+") listOf(one, operand) else listOf(operand, one)
+            val value = ValueOps.coerce(
+                ValueOps.binary(sym, children[0].evaluatedValue, children[1].evaluatedValue),
+                operand.resolvedType
+            )
+            return SemanticAstNode(
+                id = id(), kind = SemanticNodeKind.BINARY_OPERATOR, primaryLabel = sym,
+                resolvedType = operand.resolvedType, evaluatedValue = value, children = children, span = expr.span
+            )
+        }
+
+        /**
+         * `++a` / `a++` dentro de una expresión del main (`int y = a++;`, `println(++a)`): además de su valor, el
+         * incremento cambia a `a` para las instrucciones siguientes, como en Java.
+         * - Prefijo: la expresión usa el valor ya incrementado (el paso queda dentro de la expresión).
+         * - Postfijo: la expresión usa el valor anterior; el paso del incremento se agrega al árbol antes de la
+         *   instrucción (ver `buildRoot`).
+         */
+        private fun expandIncrementInMain(expr: UnaryExpr, b: Binding, frame: Frame): SemanticAstNode {
+            val key = expr.operator.span.start.offset
+            // Un argumento se expande cada vez que el método usa su parámetro: el incremento se aplica una sola vez.
+            appliedIncrements[key]?.let { (before, step) ->
+                val target = if (expr.isPrefix) step else before
+                // Una hoja se puede repetir con un id nuevo; un paso con hijos se referencia (como `[n]`).
+                return if (target.children.isEmpty()) target.copy(id = id())
+                else leaf(
+                    SemanticNodeKind.IDENTIFIER_REF, "ID${b.id}", target.evaluatedValue, expr.span,
+                    type = target.resolvedType, symbolId = b.id, referencedNodeId = target.id
+                )
+            }
+            val before = expand(expr.operand, frame)
+            val step = incrementNode(expr, frame)
+            appliedIncrements[key] = before to step
+            frame.materialized[b] = step
+            mainOpaque.remove(b)
+            if (expr.isPrefix) return step
+            pendingIncrements += step
+            return before
+        }
+
         private fun expandUnary(expr: UnaryExpr, frame: Frame): SemanticAstNode {
             val op = expr.operator
             return when (op.category) {
-                // `++a` se representa como `(1, +, a)` (U2: "float tres = dos + 1; // ++dos")
                 TokenCategory.INC, TokenCategory.DEC -> {
-                    val operand = expand(expr.operand, frame)
-                    val one = leaf(SemanticNodeKind.LITERAL_VALUE, "1", EvaluatedValue.IntVal(1), op.span)
-                    val sym = if (op.category == TokenCategory.INC) "+" else "-"
-                    val children = if (sym == "+") listOf(one, operand) else listOf(operand, one)
-                    val value = ValueOps.coerce(
-                        ValueOps.binary(sym, children[0].evaluatedValue, children[1].evaluatedValue),
-                        operand.resolvedType
-                    )
-                    SemanticAstNode(
-                        id = id(), kind = SemanticNodeKind.BINARY_OPERATOR, primaryLabel = sym,
-                        resolvedType = operand.resolvedType, evaluatedValue = value, children = children, span = expr.span
-                    )
+                    val b = incrementedBinding(expr)
+                    if (frame.isMain && b != null) expandIncrementInMain(expr, b, frame) else incrementNode(expr, frame)
                 }
                 else -> {
                     val operandExpr = expr.operand
@@ -1532,26 +1623,59 @@ class SemanticAnalyzer(
             // posterior no cambia el valor con el que se calculó.
             fun currentFrame() = Frame(m, mb, params, locals, callerFrame.depth + 1, false, HashMap(), opaque)
 
+            // `y = x++;` / `println(++x);` dentro del método: después de la instrucción, `x` vale `++x` (calculado con
+            // el contexto anterior a ella).
+            fun applyIncrements(increments: List<UnaryExpr>, frame0: Frame) {
+                for (inc in increments) {
+                    val ib = incrementedBinding(inc) ?: continue
+                    locals = locals + (ib to (inc to frame0))
+                    opaque = opaque - ib
+                }
+            }
+
             val nodes = ArrayList<SemanticAstNode>()
             for (s in m.body) {
                 when (s) {
                     is VarDeclStmt -> {
                         val b = tokenBinding[s.name.span.start.offset]
                         val init = s.init
-                        if (b != null && init != null) {
-                            locals = locals + (b to (init to currentFrame()))
+                        if (b != null && init is ErrorExpr) {
+                            // Valor que el sintáctico no pudo derivar completo: el ID queda con valor desconocido.
+                            locals = locals - b
+                            opaque = opaque + (b to EvaluatedValue.UnknownVal)
+                        } else if (b != null && init != null) {
+                            val frame0 = currentFrame()
+                            val (value, increments) = splitIncrements(init)
+                            locals = locals + (b to (value to frame0))
                             opaque = opaque - b
+                            applyIncrements(increments, frame0)
                         }
                     }
                     is AssignStmt -> {
                         // Locales, parámetros y atributos: desde aquí el método usa el valor asignado.
                         val b = tokenBinding[s.target.span.start.offset]
-                        if (b != null) {
-                            locals = locals + (b to (s.value to currentFrame()))
+                        if (b != null && s.value is ErrorExpr) {
+                            locals = locals - b
+                            opaque = opaque + (b to EvaluatedValue.UnknownVal)
+                        } else if (b != null) {
+                            val frame0 = currentFrame()
+                            val (value, increments) = splitIncrements(s.value)
+                            locals = locals + (b to (value to frame0))
                             opaque = opaque - b
+                            applyIncrements(increments, frame0)
                         }
                     }
-                    is SoutStmt -> statementNode(s, currentFrame(), owner = mb)?.let { nodes += it }
+                    is SoutStmt -> {
+                        val argument = s.argument
+                        if (argument == null) {
+                            statementNode(s, currentFrame(), owner = mb)?.let { nodes += it }
+                        } else {
+                            val frame0 = currentFrame()
+                            val (value, increments) = splitIncrements(argument)
+                            statementNode(s.copy(argument = value), frame0, owner = mb)?.let { nodes += it }
+                            applyIncrements(increments, frame0)
+                        }
+                    }
                     is ExprStmt -> {
                         val incremented = incrementedBinding(s.expr)
                         if (incremented != null) {
@@ -1571,7 +1695,8 @@ class SemanticAnalyzer(
                 }
             }
             val ret = m.returnStmt
-            val retValue = ret?.value
+            // `return x++;` regresa el valor anterior de x (el incremento ya no se usa).
+            val retValue = ret?.value?.let { splitIncrements(it).first }
             if (ret != null && retValue != null) {
                 val frame = currentFrame()
                 val castType = (retValue as? CastExpr)?.typeToken?.lexeme

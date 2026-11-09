@@ -78,6 +78,17 @@ object AcademicErrorTemplates {
         return if (production != null) "$head\nRompe la regla gramatical $production" else head
     }
 
+    /**
+     * Asignación compuesta de Java (`x += 4`): LstTokens solo tiene `=` (ODA), así que la GLC v7 no la deriva.
+     * [operator] es la parte aritmética (`+`, `-`, `*`, `/`, `%`); [target] el ID, si se conoce.
+     */
+    fun compoundAssignmentNotInGlc(operator: String, target: String?, production: String?): String {
+        val id = target ?: "ID"
+        val head = "El operador $operator= es válido en Java, pero no está contemplado en los tokens de la GLC v7 " +
+            "(solo ODA =); se debe escribir $id = $id $operator EXP"
+        return if (production != null) "$head\nRompe la regla gramatical $production" else head
+    }
+
     /** Violación de las "Consideraciones de la GLC v7" (herencia, listas, arreglos, estáticos...). */
     fun grammarConsiderationViolation(rule: String, detail: String, production: String?): String {
         val head = "Con base en las consideraciones de la GLC v7, $detail"

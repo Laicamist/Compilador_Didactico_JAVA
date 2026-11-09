@@ -20,6 +20,9 @@
 - Jerarquía de operadores de la U1/U2: nivel 1 `+ -`, nivel 2 `* /`, nivel 3 `.`, los paréntesis suben un nivel.
 - Consideraciones de la GLC v7 verificadas: sin herencia/implementación, solo importación simple, sin arreglos, sin declaración en lista, sin variables ni métodos estáticos.
 - **Modo pánico**: un error por instrucción; se sincroniza con `FI` (`;`) o `LLC` (`}`).
+- **Instrucción incompleta (9 nov 2026):** si después del valor sigue un token que lo continúa pero la GLC no deriva (`?`, `:`, `=`, `.`, `[`…, ej. el ternario `int y = a > 2 ? 1 : 0;`) o el valor quedó roto (`int x = 5 + ;`), el ID queda declarado/asignado con valor desconocido (`?`): no se revisa la parte que sí se derivó (sin errores semánticos en cascada como "boolean incompatible con int" o "no ha sido declarado") ni se genera código intermedio de ella. Si solo falta el `;` (sigue otra instrucción), la declaración se conserva.
+- **Asignación compuesta (9 nov 2026):** `x += 4`, `-=`, `*=`, `/=`, `%=` no están en LstTokens (solo `=` ODA). Se reporta *"El operador += es válido en Java, pero no está contemplado en los tokens de la GLC v7 (solo ODA =); se debe escribir x = x + EXP"* y el ID queda con valor desconocido. En la actualización de un `for` se reporta igual, sin modo pánico, para no descartar el cuerpo. `x =+ 4` sigue siendo válido (`x = +4`).
+- **Fuente rechazada (9 nov 2026):** con un carácter nulo (`\u0000`) o un tamaño mayor al permitido no se ejecuta el sintáctico; la Tabla de Errores solo tiene el error léxico del rechazo.
 - Redacción de la U1: *"No cumple la regla CLASE, se esperaba un LLA y se encuentra un ID"* + *"Rompe la regla gramatical CLASE::=MA CL ID LLA CONTENT LLC"*.
 - Erratas del documento interpretadas: `L_CASES::=PRCA L_CASES` → `CASE`; `STATMNT_B` → `STAT_B`; `EXPBOO` se analiza como `EXP` y el semántico exige boolean.
 - Extensiones que exigen los ejemplos de la U2/U3 (la GLC no las deriva): `new Uno().cuatro('@')`, `("1"+c).length()`, conversiones `(char)(...)`, argumentos que son expresiones, `ACC FI` como instrucción, `SOUT`, `a++` y `-5`, cuerpos `{ }` en `if/while/do/for` (reglas moradas).
@@ -40,6 +43,10 @@
 - Raíz `IDn PMAIN` conectada solo al método principal; acciones binarias; asignaciones, `SOUT`, `return` y métodos de Java no son binarios.
 - Cada uso de un atributo, parámetro o local de un método se sustituye por su asignación (`ID2 =` con su valor).
 - **Reasignaciones (corregido el 7 nov 2026):** `x = 5;` y `x++;` cambian el valor que usan las instrucciones siguientes, tanto en el main (se reutiliza el paso: `(ID3, =, 5, 5)` → `SOUT [2]`) como dentro de un método (locales, parámetros y atributos). Cada declaración conserva el valor de su momento: reasignar `a` después no cambia una `b` ya calculada con `a`.
+- **`++` y `--` (9 nov 2026):** el paso se representa como en la clase A de la U2 (`int uno = ++a;` → `(1, +, ID2)`); en el decremento el 1 va a la derecha, `(ID2, -, 1)`, porque la resta no conmuta. Dentro de una expresión el incremento también cambia la variable, como en Java:
+  - Prefijo `int y = ++x;`: `y` usa el valor nuevo. `(1, +, [1], 6)`, `(ID4, =, [2], 6)`.
+  - Postfijo `int y = x++;`: `y` usa el valor anterior. El paso del incremento va antes de la instrucción (como `iinc` en Java) y la instrucción referencia el valor anterior: `(1, +, [1], 6)`, `(ID4, =, [1], 5)`. Así ninguna referencia apunta hacia adelante (`x++ + x` = 11).
+  - En métodos se aplica la misma regla por sustitución; `return a++;` regresa el valor anterior.
 - **Valores desconocidos con letras** (`x`, `y`, `z`…, como en la U3): lecturas de Scanner, `Math.random()`, métodos sobre valores desconocidos, operaciones no lineales y variables modificadas dentro de una estructura de control. Las operaciones lineales se arman con ellas: `2x+1`, `-y+3z+78`.
 - **Orden de ejecución: de abajo hacia arriba y de izquierda a derecha, por niveles**, dentro de cada instrucción del main. Este número es el renglón del código intermedio.
   - Validado: `Uno` (8/8), `Nueva` (8/8), `A` de la U2 (26/26), ejemplos de PI, FO y RS de la U3.
@@ -100,6 +107,6 @@
 | `JavaMethodsTest` | String, Scanner, Math, conversiones, `import` y letras |
 | `OptimizationAndRobustnessTest` | Técnicas de la U3, entradas corruptas, anti-DoS y cancelación entre fases |
 | `ThreeAddressTraceTest` | Traza de temporales y pendientes de 3 direcciones |
-| `SemanticRegressionTest` | Reasignaciones, ámbitos de bloque, asignación definitiva, observaciones y literales (7 nov 2026) |
+| `SemanticRegressionTest` | Reasignaciones, ámbitos de bloque, asignación definitiva, observaciones y literales (7 nov 2026); asignación compuesta, ternario e instrucciones incompletas, `++`/`--` en expresiones y fuente rechazada (9 nov 2026) |
 
 Más `jvmTest/.../AppSettingsPersistenceJvmTest` (ajustes en SQLite). Ejecutar con `./gradlew :sharedLogic:allTests` (o `:sharedLogic:jvmTest` para solo Desktop).

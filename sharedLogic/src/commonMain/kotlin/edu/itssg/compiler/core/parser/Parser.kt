@@ -9,6 +9,7 @@ import edu.itssg.compiler.core.lexer.TokenCategory.*
 import edu.itssg.compiler.core.security.CompilerSecurityConfig
 import edu.itssg.compiler.core.security.SecurityCheckResult
 import edu.itssg.compiler.core.security.SecurityViolationCode
+import edu.itssg.compiler.core.security.SourcePosition
 import edu.itssg.compiler.core.security.SourceSpan
 
 /**
@@ -95,6 +96,27 @@ class Parser(
             syntaxTree = root,
             hasSyntacticErrors = errorReporter.errorCount > errorsBefore,
             program = program
+        )
+    }
+
+    /**
+     * Resultado cuando el léxico rechazó la fuente completa (carácter nulo `\u0000` o tamaño mayor al permitido):
+     * no hay tokens que derivar, así que no se reportan errores sintácticos "se esperaba MA… fin de archivo" que
+     * solo serían consecuencia del rechazo. El error que explica el rechazo ya está en la Tabla de Errores.
+     */
+    fun rejectedSourceResult(): ParserResult {
+        nextNodeId = 1
+        val start = SourceSpan(SourcePosition.START, SourcePosition.START)
+        return ParserResult(
+            syntaxTree = SyntaxTreeNode.NonTerminal(
+                id = allocateId(),
+                ruleName = "JAVA",
+                children = emptyList(),
+                span = start,
+                isRecoveredWithError = true
+            ),
+            hasSyntacticErrors = false,
+            program = ProgramAst(packageName = null, imports = emptyList(), classDecl = null)
         )
     }
 
@@ -624,6 +646,11 @@ class Parser(
                     c += n
                     stmt = s
                 }
+                cat == ID && isCompoundAssignStart() -> {
+                    val (n, s) = parseCompoundAsig()
+                    c += n
+                    stmt = s
+                }
                 cat == ID && isObjStart() -> {
                     val (n, s) = parseObj()
                     c += n
@@ -648,13 +675,14 @@ class Parser(
                     // INST ::= ACC (extensión: termina en FI) | EXPU FI
                     unit {
                         val startSpan = cursor.peek().span
-                        val (expNode, expr) = parseExp()
+                        val (expNode, expr, clean) = parseExpChecked()
                         c += expNode.children.firstOrNull() ?: expNode
                         c += expectFi("INST")
                         if (expr !is AccessExpr && expr !is CallExpr && expr !is UnaryExpr && !unitFailed) {
                             syntaxError("INST", "DEC, ASIG, ACC u OBJ", cursor.previous())
                         }
-                        stmt = ExprStmt(expr, SourceSpan(startSpan.start, cursor.previous().span.end))
+                        // Una expresión incompleta (ej. `x + ;`) no se analiza ni genera código intermedio.
+                        if (clean) stmt = ExprStmt(expr, SourceSpan(startSpan.start, cursor.previous().span.end))
                     }
                 }
                 cat == RTN -> unit {
@@ -709,13 +737,17 @@ class Parser(
                     val (e, expr, clean) = parseExpChecked()
                     children += e
                     init = expr
-                    initClean = clean
+                    initClean = clean && !continuesExpression()
                 }
                 children += expectFi("DEC")
                 val nameTok = (idNode as? SyntaxTreeNode.Terminal)?.token
                 val span = SourceSpan(startSpan.start, cursor.previous().span.end)
                 stmt = when {
                     tyTok != null && nameTok != null && headerOk && initClean -> VarDeclStmt(tyTok, nameTok, init, span)
+                    // Valor incompleto (`int y = a > 2 ? 1 : 0;`, `int x = 5 + ;`): el ID queda declarado con valor
+                    // desconocido, sin revisar ni representar la parte que sí se derivó (evita errores en cascada).
+                    tyTok != null && nameTok != null && headerOk && init != null ->
+                        VarDeclStmt(tyTok, nameTok, ErrorExpr(init.span), span)
                     init != null && initClean -> CheckOnlyStmt(init, span)
                     else -> null
                 }
@@ -735,12 +767,15 @@ class Parser(
                 children += term(target)
                 children += expect(ODA, "ASIG")
                 val headerOk = !unitFailed
-                val (e, expr, clean) = parseExpChecked()
+                val (e, expr, parsedClean) = parseExpChecked()
+                val clean = parsedClean && !continuesExpression()
                 children += e
                 children += expectFi("ASIG")
                 val span = SourceSpan(target.span.start, cursor.previous().span.end)
                 stmt = when {
                     headerOk && clean -> AssignStmt(target, expr, span)
+                    // Valor incompleto: desde aquí el valor del ID es desconocido (?) en lugar del anterior.
+                    headerOk -> AssignStmt(target, ErrorExpr(expr.span), span)
                     clean -> CheckOnlyStmt(expr, span)
                     else -> null
                 }
@@ -748,6 +783,62 @@ class Parser(
             children
         }
         return node to stmt
+    }
+
+    /**
+     * `true` si después de la expresión sigue un token que la continúa pero que la GLC v7 no deriva (ternario `?`,
+     * `:`, `=`, `.`, `[`…): la expresión quedó truncada y su valor no es el que escribió el alumno. Un token que
+     * puede iniciar otra instrucción (`int`, un ID, `}`…) solo indica que falta el `;`.
+     */
+    private fun continuesExpression(): Boolean = cursor.peek().category in EXPRESSION_CONTINUATION
+
+    private fun isCompoundAssignStart(): Boolean =
+        check(ID) && peekCat(1) == OPA && peekCat(2) == ODA && isCompoundOperator(cursor.peekAhead(1), cursor.peekAhead(2))
+
+    /** `+` `=` escritos juntos (`+=`): LstTokens no tiene ese token, el léxico los separa en OPA y ODA. */
+    private fun isCompoundOperator(op: Token, eq: Token): Boolean =
+        op.category == OPA && eq.category == ODA && eq.span.start.offset == op.span.start.offset + op.lexeme.length
+
+    /**
+     * Asignación compuesta de Java (`x += 4;`, `x -= 1;`, `x *= 2;`, `x /= 2;`, `x %= 3;`): no existe en la GLC v7.
+     * Se reporta con un mensaje claro y el ID queda con valor desconocido; la expresión de la derecha se deriva
+     * para el árbol pero no se analiza.
+     */
+    private fun parseCompoundAsig(): Pair<SyntaxTreeNode.NonTerminal, Stmt?> {
+        var stmt: Stmt? = null
+        val node = rule("ASIG") {
+            val children = ArrayList<SyntaxTreeNode>()
+            unit {
+                val target = cursor.advance()
+                children += term(target)
+                val op = cursor.advance()
+                val eq = cursor.advance()
+                children += error("ODA", "ASIG", SourceSpan(op.span.start, eq.span.end))
+                compoundAssignmentError(op, target.lexeme, SourceSpan(op.span.start, eq.span.end))
+                val (e, _, _) = parseExpChecked()
+                children += e
+                children += expectFi("ASIG")
+                stmt = AssignStmt(target, ErrorExpr(SourceSpan(op.span.start, cursor.previous().span.end)),
+                    SourceSpan(target.span.start, cursor.previous().span.end))
+            }
+            children
+        }
+        return node to stmt
+    }
+
+    /** Reporta [op]`=`; con [panic] activa el modo pánico de la unidad (se sincroniza hasta `;`). */
+    private fun compoundAssignmentError(op: Token, target: String?, span: SourceSpan, panic: Boolean = true) {
+        if (unitFailed) {
+            silentFailure = true
+            return
+        }
+        if (panic) unitFailed = true
+        reporter.reportSyntacticError(
+            ruleName = "ASIG",
+            offendingLexeme = "${op.lexeme}=",
+            justification = AcademicErrorTemplates.compoundAssignmentNotInGlc(op.lexeme, target, GlcV7.production("ASIG")),
+            span = span
+        )
     }
 
     private fun isSoutStart(): Boolean =
@@ -932,7 +1023,19 @@ class Parser(
                     cond = expr
                 }
                 children += expectFi("FOR")
-                if (!check(PC)) {
+                if (isCompoundAssignStart()) {
+                    // `i += 2` como actualización: se reporta, pero el encabezado sigue (sin modo pánico) para no
+                    // descartar el cuerpo del for y desacomodar las llaves.
+                    val target = cursor.advance()
+                    val op = cursor.advance()
+                    val eq = cursor.advance()
+                    val opSpan = SourceSpan(op.span.start, eq.span.end)
+                    children += term(target)
+                    children += error("ODA", "FOR", opSpan)
+                    compoundAssignmentError(op, target.lexeme, opSpan, panic = false)
+                    val (e, _) = parseExp()
+                    children += e
+                } else if (!check(PC)) {
                     val (e, expr) = parseExp()
                     children += e
                     update = expr
@@ -1235,7 +1338,13 @@ class Parser(
                 if (check(CA)) parseAccessTail(cla, newExpr) else wrap("EXP", listOf(wrap("ACC", listOf(cla)))) to newExpr
             }
             else -> {
-                syntaxError("EXP", "VAL, ACC o EXPC", tok)
+                val previous = cursor.previous()
+                if (isCompoundOperator(previous, tok)) {
+                    // `i += 2` en otra posición (ej. la actualización de un for): mismo mensaje que la instrucción.
+                    compoundAssignmentError(previous, null, SourceSpan(previous.span.start, tok.span.end))
+                } else {
+                    syntaxError("EXP", "VAL, ACC o EXPC", tok)
+                }
                 wrap("EXP", listOf(error("EXP", "EXP", tok.span))) to ErrorExpr(tok.span)
             }
         }
@@ -1485,3 +1594,8 @@ class Parser(
 
     private fun allocateId(): Int = nextNodeId++
 }
+
+/** Tokens que, después de una expresión completa, indican que el alumno siguió escribiéndola (ver `continuesExpression`). */
+private val EXPRESSION_CONTINUATION: Set<TokenCategory> = setOf(
+    OPT, DOP, ODA, CA, COA, COC, PC, OPA, OPR, OPL, OPB, XOR, OPN, INC, DEC
+)

@@ -21,7 +21,13 @@ data class LexerResult(
     val tokens: List<Token>,
     val symbolTable: SymbolTable,
     val lexicalAnomalies: List<LexicalAnomaly>,
-    val quotaAbortedMessage: String? = null
+    val quotaAbortedMessage: String? = null,
+    /**
+     * `true` si la fuente se rechazó completa antes de leerla (carácter nulo o tamaño excedido): no hay tokens y las
+     * fases siguientes no deben reportar errores derivados del rechazo. Si el tope de tokens se alcanza a la mitad,
+     * es `false` y se analiza lo que sí se leyó.
+     */
+    val sourceRejected: Boolean = false
 )
 
 /**
@@ -63,7 +69,8 @@ class Lexer(
                         span = SourceSpan(violationPos, violationPos)
                     )
                 ),
-                quotaAbortedMessage = error.message
+                quotaAbortedMessage = error.message,
+                sourceRejected = true
             )
         }
 

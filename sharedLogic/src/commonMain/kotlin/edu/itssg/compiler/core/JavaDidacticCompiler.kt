@@ -115,11 +115,16 @@ class JavaDidacticCompiler(
 
         checkpoint()
 
-        // FASE 2: Análisis Sintáctico (GLC v7) y Árbol Sintáctico
-        val parserResult = parser.parse(
-            tokens = lexerResult.tokens,
-            errorReporter = errorReporter
-        )
+        // FASE 2: Análisis Sintáctico (GLC v7) y Árbol Sintáctico.
+        // Si el léxico rechazó la fuente completa (\u0000 o tamaño excedido) no hay nada que derivar.
+        val parserResult = if (lexerResult.sourceRejected) {
+            parser.rejectedSourceResult()
+        } else {
+            parser.parse(
+                tokens = lexerResult.tokens,
+                errorReporter = errorReporter
+            )
+        }
 
         checkpoint()
 

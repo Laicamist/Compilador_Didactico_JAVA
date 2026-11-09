@@ -204,4 +204,158 @@ class SemanticRegressionTest {
         }
         assertTrue(lexical.getValue("4a").contains("no cumple con las características para ser un ID"))
     }
+
+    // ------------------------------------------------------------------ Revisión del 9 nov 2026
+
+    private fun syntaxErrors(r: CompilationReport) =
+        r.errors.filter { it.type == ErrorPhaseType.SYNTACTIC }.map { it.justification }
+
+    @Test
+    fun asignacionCompuestaTieneMensajePropioYNoDejaCuadruploBasura() {
+        val r = compileMain("int x = 1;\nx += 4;\nSystem.out.println(x);")
+        val errors = syntaxErrors(r)
+        assertEquals(1, errors.size, "Un solo error: ${r.errors}")
+        assertTrue(errors.single().startsWith("El operador += es válido en Java, pero no está contemplado"), errors.single())
+        assertTrue(errors.single().contains("x = x + EXP"))
+        // Después del error el valor de x es desconocido, no el anterior.
+        assertEquals(listOf("1. (ID3, =, 1, 1)", "2. (PMAIN, SOUT, ID3, ?)"), quads(r))
+    }
+
+    @Test
+    fun todasLasAsignacionesCompuestasAritmeticas() {
+        val r = compileMain("int x = 8;\nx -= 1;\nx *= 2;\nx /= 2;\nx %= 3;")
+        assertEquals(listOf("-=", "*=", "/=", "%="), r.errors.map { it.offendingLexeme })
+        assertTrue(semanticErrors(r).isEmpty())
+    }
+
+    @Test
+    fun asignacionCompuestaEnElForNoProvocaErroresEnCascada() {
+        val r = compileMain("int s = 0;\nfor (int i = 0; i < 3; i += 1) { s = s + i; }\nSystem.out.println(s);")
+        assertEquals(1, r.errors.size, "Un solo error: ${r.errors}")
+        assertTrue(r.errors.single().justification.startsWith("El operador += es válido en Java"))
+    }
+
+    @Test
+    fun igualMasSeparadoSigueSiendoValido() {
+        // `x =+ 4` es `x = +4` en Java: no es asignación compuesta.
+        val r = compileMain("int x = 1;\nx =+ 4;\nSystem.out.println(x);")
+        assertTrue(r.errors.isEmpty(), "Sin errores: ${r.errors}")
+        assertEquals("3. (PMAIN, SOUT, [2], 4)", quads(r).last())
+    }
+
+    @Test
+    fun ternarioSoloReportaElErrorSintactico() {
+        val r = compileMain("int y = 3 > 2 ? 1 : 0;\nSystem.out.println(y);")
+        assertEquals(1, r.errors.size, "Sin error semántico en cascada: ${r.errors}")
+        assertEquals(ErrorPhaseType.SYNTACTIC, r.errors.single().type)
+        assertTrue(r.errors.single().justification.contains("se encuentra un OPT (?)"))
+        // y queda declarada con valor desconocido: no se asigna `true` ni se reporta "no declarado".
+        assertEquals(listOf("1. (PMAIN, SOUT, ID3, ?)"), quads(r))
+    }
+
+    @Test
+    fun ternarioEnAsignacionDejaElValorDesconocido() {
+        val r = compileMain("int y = 0;\ny = 3 > 2 ? 1 : 0;\nSystem.out.println(y);")
+        assertEquals(1, r.errors.size, "${r.errors}")
+        assertEquals(listOf("1. (ID3, =, 0, 0)", "2. (PMAIN, SOUT, ID3, ?)"), quads(r))
+    }
+
+    @Test
+    fun valorIncompletoNoDejaErrorDeNoDeclarado() {
+        val r = compileMain("int x = 5 + ;\nSystem.out.println(x);")
+        assertEquals(1, r.errors.size, "${r.errors}")
+        assertTrue(semanticErrors(r).isEmpty())
+        assertEquals(listOf("1. (PMAIN, SOUT, ID3, ?)"), quads(r))
+    }
+
+    @Test
+    fun faltaPuntoYComaConservaElValor() {
+        // Solo falta el `;` (lo siguiente es otra instrucción): la declaración se conserva como antes. El modo pánico
+        // sincroniza hasta el siguiente `;`, así que `int y = 2;` se descarta.
+        val r = compileMain("int x = 5\nint y = 2;\nSystem.out.println(x);")
+        assertEquals(listOf("1. (ID3, =, 5, 5)", "2. (PMAIN, SOUT, [1], 5)"), quads(r))
+    }
+
+    @Test
+    fun incrementoYDecrementoSiguenLaLaminaDeLaClaseA() {
+        // U2, clase A: `int uno = ++a;` → (1, +, ID2). En el decremento el 1 va a la derecha (la resta no conmuta).
+        val inc = compileMain("int x = 1;\nx++;\nSystem.out.println(x);")
+        assertEquals(listOf("1. (ID3, =, 1, 1)", "2. (1, +, [1], 2)", "3. (PMAIN, SOUT, [2], 2)"), quads(inc))
+        val dec = compileMain("int x = 5;\n--x;\nSystem.out.println(x);")
+        assertEquals(listOf("1. (ID3, =, 5, 5)", "2. ([1], -, 1, 4)", "3. (PMAIN, SOUT, [2], 4)"), quads(dec))
+    }
+
+    @Test
+    fun postincrementoUsaElValorAnteriorYActualizaLaVariable() {
+        val r = compileMain("int x = 5;\nint y = x++;\nSystem.out.println(y);\nSystem.out.println(x);")
+        assertTrue(r.errors.isEmpty(), "${r.errors}")
+        assertEquals(
+            listOf(
+                "1. (ID3, =, 5, 5)",
+                "2. (1, +, [1], 6)",
+                "3. (ID4, =, [1], 5)",
+                "4. (PMAIN, SOUT, [3], 5)",
+                "5. (PMAIN, SOUT, [2], 6)"
+            ),
+            quads(r)
+        )
+    }
+
+    @Test
+    fun preincrementoUsaElValorNuevoYActualizaLaVariable() {
+        val r = compileMain("int x = 5;\nint y = ++x;\nSystem.out.println(y);\nSystem.out.println(x);")
+        assertEquals(
+            listOf(
+                "1. (ID3, =, 5, 5)",
+                "2. (1, +, [1], 6)",
+                "3. (ID4, =, [2], 6)",
+                "4. (PMAIN, SOUT, [3], 6)",
+                "5. (PMAIN, SOUT, [2], 6)"
+            ),
+            quads(r)
+        )
+    }
+
+    @Test
+    fun postdecrementoDentroDeUnPrintln() {
+        val r = compileMain("int x = 5;\nSystem.out.println(x--);\nSystem.out.println(x);")
+        assertEquals(listOf("5", "4"), r.intermediateCode.quadruples.filter { "SOUT" in it.formatAcademic() }
+            .map { it.formatAcademic().substringAfterLast(", ").removeSuffix(")") })
+    }
+
+    @Test
+    fun incrementoLeidoEnLaMismaExpresionNoApuntaHaciaAdelante() {
+        val r = compileMain("int x = 5;\nint y = x++ + x;\nSystem.out.println(y);")
+        assertEquals("5. (PMAIN, SOUT, [4], 11)", quads(r).last())
+        quads(r).forEachIndexed { i, q ->
+            Regex("\\[(\\d+)]").findAll(q).forEach { ref ->
+                assertTrue(ref.groupValues[1].toInt() <= i, "Referencia hacia adelante en $q")
+            }
+        }
+    }
+
+    @Test
+    fun postincrementoDentroDeUnMetodo() {
+        val r = compileMain(
+            "P p = new P();\nSystem.out.println(p.m());",
+            "public int m(){ int a = 5; int b = a++; return b * 10 + a; }"
+        )
+        assertTrue(r.errors.isEmpty(), "${r.errors}")
+        assertTrue(quads(r).last().endsWith(", 56)"), quads(r).last())
+    }
+
+    @Test
+    fun returnConPostincrementoRegresaElValorAnterior() {
+        val r = compileMain("P p = new P();\nSystem.out.println(p.m());", "int a = 2;\npublic int m(){ return a++; }")
+        assertTrue(quads(r).last().endsWith(", 2)"), quads(r).last())
+    }
+
+    @Test
+    fun fuenteRechazadaSoloReportaElRechazo() {
+        val r = JavaDidacticCompiler().compileSynchronously("public class P{ \u0000 }")
+        assertEquals(1, r.errors.size, "${r.errors}")
+        assertEquals(ErrorPhaseType.LEXICAL, r.errors.single().type)
+        assertTrue(r.errors.single().justification.contains("carácter nulo"))
+        assertTrue(r.intermediateCode.quadruples.isEmpty())
+    }
 }
