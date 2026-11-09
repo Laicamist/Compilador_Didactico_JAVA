@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Textos del instalador en español. jpackage toma todo archivo .wxl de la carpeta de recursos y pone su cultura
-  (es-es) como la principal, así que el asistente de WiX (WixUIExtension) también sale en español.
+  Textos del instalador en español.
 
-  Las primeras cadenas traducen las propias de jpackage (MsiInstallerStrings_en.wxl del JDK 21); las de abajo
-  reemplazan algunos textos del asistente de WiX para presentar la app.
+  OJO con el nombre: se llama MsiInstallerStrings_en.wxl a propósito, aunque su cultura es es-es. Así reemplaza el
+  archivo en inglés de jpackage, que es el que jpackage usa como "principal" en Windows en español o inglés, y la única
+  cultura del MSI queda en es-es (también el asistente de WiX). Con otro nombre, jpackage lo agrega junto al inglés
+  (-cultures:es-es;en-us) y light.exe falla con LGHT0100 porque las cadenas de jpackage quedan repetidas.
+
+  Las primeras cadenas son las de jpackage (MsiInstallerStrings_en.wxl del JDK 21) traducidas; deben estar todas.
+  Las de abajo reemplazan algunos textos del asistente de WiX para presentar la app.
 -->
 <WixLocalization Culture="es-es" xmlns="http://schemas.microsoft.com/wix/2006/localization" Codepage="1252">
   <!-- Cadenas de jpackage -->
