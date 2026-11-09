@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Textos del instalador en español. jpackage toma todo archivo .wxl de la carpeta de recursos y pone su cultura
+  (es-es) como la principal, así que el asistente de WiX (WixUIExtension) también sale en español.
+
+  Las primeras cadenas traducen las propias de jpackage (MsiInstallerStrings_en.wxl del JDK 21); las de abajo
+  reemplazan algunos textos del asistente de WiX para presentar la app.
+-->
+<WixLocalization Culture="es-es" xmlns="http://schemas.microsoft.com/wix/2006/localization" Codepage="1252">
+  <!-- Cadenas de jpackage -->
+  <String Id="message.install.dir.exist">La carpeta [INSTALLDIR] ya existe. ¿Quiere instalar en esa carpeta de todos modos?</String>
+  <String Id="MainFeatureTitle">J-Autómata Studio</String>
+  <String Id="DowngradeErrorMessage">Ya está instalada una versión más reciente de [ProductName]. No se permite instalar una versión anterior; el instalador se cerrará.</String>
+  <String Id="DisallowUpgradeErrorMessage">Ya está instalada una versión anterior de [ProductName] y no se permite actualizarla; el instalador se cerrará.</String>
+  <String Id="ShortcutPromptDlg_Title">Instalación de J-Autómata Studio</String>
+  <String Id="ShortcutPromptDlgTitle">{\WixUI_Font_Title}Accesos directos</String>
+  <String Id="ShortcutPromptDlgBannerBitmap">WixUI_Bmp_Banner</String>
+  <String Id="ShortcutPromptDlgDescription">Elija dónde quiere los accesos directos de J-Autómata Studio.</String>
+  <String Id="ShortcutPromptDlgDesktopShortcutControlLabel">Crear acceso directo en el escritorio</String>
+  <String Id="ShortcutPromptDlgStartMenuShortcutControlLabel">Crear acceso directo en el menú Inicio</String>
+  <String Id="InstallDirNotEmptyDlg_Title">Instalación de J-Autómata Studio</String>
+  <String Id="ContextMenuCommandLabel">Abrir con J-Autómata Studio</String>
+
+  <!-- Textos del asistente de WiX personalizados -->
+  <String Id="WelcomeDlg_Title">Instalación de J-Autómata Studio</String>
+  <String Id="WelcomeDlgTitle">{\WixUI_Font_Bigger}Bienvenido a J-Autómata Studio</String>
+  <String Id="WelcomeDlgDescription">Este asistente instalará J-Autómata Studio [ProductVersion], el IDE didáctico que simula las fases del compilador de Java (GLC v7). Haga clic en Siguiente para continuar o en Cancelar para salir.</String>
+  <String Id="LicenseAgreementDlg_Title">Instalación de J-Autómata Studio</String>
+  <String Id="InstallDirDlg_Title">Instalación de J-Autómata Studio</String>
+  <String Id="VerifyReadyDlg_Title">Instalación de J-Autómata Studio</String>
+  <String Id="ProgressDlg_Title">Instalación de J-Autómata Studio</String>
+  <String Id="ExitDialog_Title">Instalación de J-Autómata Studio</String>
+  <String Id="ExitDialogTitle">{\WixUI_Font_Bigger}J-Autómata Studio quedó instalado</String>
+  <String Id="ExitDialogDescription">Ábralo desde el menú Inicio; en el espacio de trabajo, el menú Ejemplos trae los programas de las láminas de clase. Haga clic en Finalizar para salir.</String>
+</WixLocalization>

@@ -52,13 +52,16 @@ En Windows usa `gradlew.bat` en lugar de `./gradlew`.
 ## Instalador de escritorio
 
 ```bash
-# Genera el instalador del sistema actual (MSI en Windows, DMG en macOS, DEB en Linux)
+# Windows: instalador personalizado (asistente en español, imágenes, aviso de uso y ligas al repositorio)
+./gradlew :desktopApp:packageMsiPersonalizado
+# Instalador estándar del sistema actual (MSI en Windows, DMG en macOS, DEB en Linux)
 ./gradlew :desktopApp:packageDistributionForCurrentOS
 # Prueba la app ya empaquetada (con el JRE recortado) sin instalarla
 ./gradlew :desktopApp:runDistributable
 ```
 
-El instalador queda en `desktopApp/build/compose/binaries/main/`. Se llama "J-Automata Studio" (sin acento, para evitar
+El MSI personalizado queda en `desktopApp/build/compose/binaries/main/msi-personalizado/` (plantillas en
+[`desktopApp/installer/windows`](desktopApp/installer/windows/LEEME.md)); los estándar, en `desktopApp/build/compose/binaries/main/`. Se llama "J-Automata Studio" (sin acento, para evitar
 problemas de jpackage/WiX con caracteres fuera de ASCII) e incluye los módulos `java.sql` y `java.logging` que necesita
 SQLite. El historial y los ajustes se guardan en `~/.itssg_compiler_data`, así que reinstalar no los borra.
 
