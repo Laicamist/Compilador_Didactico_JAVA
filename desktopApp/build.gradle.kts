@@ -23,6 +23,17 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "com.laicamist.proyecto_automatas"
             packageVersion = "1.0.0"
+
+            // Ícono del instalador y del acceso directo (salen de composeResources/drawable/JAutomataStudioIcon.png).
+            windows {
+                iconFile.set(project.file("icons/JAutomataStudio.ico"))
+            }
+            linux {
+                iconFile.set(project.file("icons/JAutomataStudio.png"))
+            }
+            macOS {
+                iconFile.set(project.file("icons/JAutomataStudio.icns"))
+            }
         }
     }
 }

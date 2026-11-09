@@ -29,7 +29,7 @@ data class HelpContent(
 )
 
 /** Línea del código del ejemplo donde está [AppViewModel.DEMO_STATEMENT]. */
-private fun demoLine(report: CompilationReport): Int =
+internal fun demoLine(report: CompilationReport): Int =
     report.sourceCode.split('\n').indexOfFirst { AppViewModel.DEMO_STATEMENT in it }.let { if (it < 0) 1 else it + 1 }
 
 /**
@@ -45,9 +45,9 @@ fun helpContent(topic: HelpTopic, report: CompilationReport?): HelpContent {
             phase = CompilerPhase.LEXICAL,
             paragraphs = listOf(
                 "El analizador léxico lee el código carácter por carácter con un autómata finito (AFD) y lo separa en " +
-                    "tokens: cada lexema recibe su categoría de la tabla de tokens (TD, ID, ODA, VTE, OPA, FI…).",
+                        "tokens: cada lexema recibe su categoría de la tabla de tokens (TD, ID, ODA, VTE, OPA, FI…).",
                 "Descarta espacios y comentarios, y numera los identificadores creados por el programador (ID1, ID2…). " +
-                    "Un símbolo que no pertenece al lenguaje, como @ fuera de una cadena, es un error léxico."
+                        "Un símbolo que no pertenece al lenguaje, como @ fuera de una cadena, es un error léxico."
             ),
             inputLabel = "Instrucción",
             input = statement,
@@ -68,9 +68,9 @@ fun helpContent(topic: HelpTopic, report: CompilationReport?): HelpContent {
             phase = CompilerPhase.SYNTACTIC,
             paragraphs = listOf(
                 "El analizador sintáctico revisa que los tokens sigan las reglas de la GLC v7. Es descendente " +
-                    "recursivo: cada regla (CLASE, MAIN, DEC, EXP…) es una función que pide los tokens que espera.",
+                        "recursivo: cada regla (CLASE, MAIN, DEC, EXP…) es una función que pide los tokens que espera.",
                 "Si falta un token reporta \"No cumple la regla…\" y se recupera en modo pánico: salta hasta el " +
-                    "siguiente ; (FI) o } (LLC) para seguir revisando el resto del programa."
+                        "siguiente ; (FI) o } (LLC) para seguir revisando el resto del programa."
             ),
             inputLabel = "Tokens",
             input = report?.let { r -> r.lexicalTableRows.filter { it.line == demoLine(r) }.joinToString(" ") { it.tokenColumn } }
@@ -86,9 +86,9 @@ fun helpContent(topic: HelpTopic, report: CompilationReport?): HelpContent {
             phase = CompilerPhase.SEMANTIC,
             paragraphs = listOf(
                 "El analizador semántico revisa el significado: que cada ID esté declarado antes de usarse, que los " +
-                    "tipos de dato (TD) sean compatibles, que los métodos reciban sus argumentos y que regresen su valor.",
+                        "tipos de dato (TD) sean compatibles, que los métodos reciban sus argumentos y que regresen su valor.",
                 "También calcula los valores que se conocen al compilar y arma el árbol abstracto-semántico con el " +
-                    "orden de ejecución: de abajo hacia arriba y de izquierda a derecha."
+                        "orden de ejecución: de abajo hacia arriba y de izquierda a derecha."
             ),
             inputLabel = "Instrucción",
             input = statement,
@@ -111,9 +111,9 @@ fun helpContent(topic: HelpTopic, report: CompilationReport?): HelpContent {
             phase = CompilerPhase.LEXICAL,
             paragraphs = listOf(
                 "La tabla de tokens tiene las columnas de la materia: ID | LEXEMA | TOKEN. La primera aparición de un " +
-                    "identificador muestra su número; las siguientes se escriben como IDn.",
+                        "identificador muestra su número; las siguientes se escriben como IDn.",
                 "La tabla de símbolos guarda cada elemento creado por el programador con su rol, TD y ámbito. La tabla " +
-                    "de errores reúne los léxicos, sintácticos y semánticos con Línea | Error | Tipo | Justificación."
+                        "de errores reúne los léxicos, sintácticos y semánticos con Línea | Error | Tipo | Justificación."
             ),
             inputLabel = "Código",
             input = statement,
@@ -129,9 +129,9 @@ fun helpContent(topic: HelpTopic, report: CompilationReport?): HelpContent {
             phase = CompilerPhase.SYNTACTIC,
             paragraphs = listOf(
                 "El árbol sintáctico muestra la derivación completa: cada no terminal de la GLC v7 y los tokens que " +
-                    "produce. El árbol abstracto-semántico solo deja las acciones, con su TD y su valor.",
+                        "produce. El árbol abstracto-semántico solo deja las acciones, con su TD y su valor.",
                 "En la app puedes acercar, plegar ramas, buscar y reproducir el recorrido: la derivación en el " +
-                    "sintáctico y la ejecución (cuádruplos o 3 direcciones) en el semántico."
+                        "sintáctico y la ejecución (cuádruplos o 3 direcciones) en el semántico."
             ),
             inputLabel = "Instrucción",
             input = statement,
@@ -148,9 +148,9 @@ fun helpContent(topic: HelpTopic, report: CompilationReport?): HelpContent {
             phase = CompilerPhase.INTERMEDIATE_CODE,
             paragraphs = listOf(
                 "Con el árbol semántico se genera código intermedio en tres formas: triplos (val1, ope, val2), " +
-                    "cuádruplos (val1, ope, val2, resultado) y 3 direcciones con los temporales T1, T2 y T3.",
+                        "cuádruplos (val1, ope, val2, resultado) y 3 direcciones con los temporales T1, T2 y T3.",
                 "Cada renglón es un paso del orden de ejecución; [n] se refiere al resultado del renglón n. Si hay " +
-                    "errores, el código intermedio no se genera."
+                        "errores, el código intermedio no se genera."
             ),
             inputLabel = "Instrucción",
             input = statement,
@@ -165,17 +165,17 @@ fun helpContent(topic: HelpTopic, report: CompilationReport?): HelpContent {
             phase = CompilerPhase.OPTIMIZATION,
             paragraphs = listOf(
                 "El optimizador recorre los cuádruplos de arriba hacia abajo y aplica las técnicas de la U3: " +
-                    "Simplificación (SE), Folding (FO), Propagación de constantes (PC), Reducción de subexpresiones (RS) " +
-                    "y Código muerto (CM).",
+                        "Simplificación (SE), Folding (FO), Propagación de constantes (PC), Reducción de subexpresiones (RS) " +
+                        "y Código muerto (CM).",
                 "La D (FOD, PCD…) indica que la técnica fue posible por un cambio anterior. El código de 3 direcciones " +
-                    "no se optimiza."
+                        "no se optimiza."
             ),
             inputLabel = "Cuádruplos originales",
             input = report?.intermediateCode?.quadruples?.size?.let { "$it instrucciones" } ?: "",
             outputLabel = "Técnicas y resultado",
             outputLines = report?.let { r ->
                 r.optimizationResult.appliedOptimizations.map { "${it.code}: ${it.afterAction}" } +
-                    r.optimizationResult.optimizedBundle.quadruples.map { "→ ${it.formatAcademic()}" }
+                        r.optimizationResult.optimizedBundle.quadruples.map { "→ ${it.formatAcademic()}" }
             }.orEmpty(),
             exampleTab = ResultTab.INTERMEDIATE_CODE
         )
@@ -183,7 +183,7 @@ fun helpContent(topic: HelpTopic, report: CompilationReport?): HelpContent {
 }
 
 /** Producciones aplicadas en la instrucción del ejemplo, en preorden (derivación por la izquierda). */
-private fun derivationLines(report: CompilationReport): List<String> {
+internal fun derivationLines(report: CompilationReport): List<String> {
     val line = demoLine(report)
     val result = ArrayList<String>()
     val stack = ArrayDeque<SyntaxTreeNode>()

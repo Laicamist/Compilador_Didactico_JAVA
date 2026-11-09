@@ -21,6 +21,8 @@ fun main() {
                 exitApplication()
             },
             title = "J-Autómata Studio",
+            // Ícono de la ventana y de la barra de tareas al correr desde IntelliJ (run).
+            icon = appIconPainter(),
         ) {
             App(container)
         }

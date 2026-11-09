@@ -1,12 +1,6 @@
 package edu.itssg.compiler.ui.home
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,15 +11,15 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -43,31 +37,41 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import edu.itssg.compiler.ui.data.ThemeMode
-import edu.itssg.compiler.ui.state.CompilerPhase
 import edu.itssg.compiler.ui.theme.JAutomataFonts
 import edu.itssg.compiler.ui.theme.JAutomataTheme
 import edu.itssg.compiler.ui.viewmodel.HelpTopic
 import edu.itssg.compiler.ui.viewmodel.HomeDemoState
 import edu.itssg.compiler.ui.viewmodel.TourStep
+import org.jetbrains.compose.resources.painterResource
+import proyecto_automatas.sharedui.generated.resources.Logo_Java
+import proyecto_automatas.sharedui.generated.resources.Res
+import proyecto_automatas.sharedui.generated.resources.itsur
+import proyecto_automatas.sharedui.generated.resources.tecnm
 
 /**
- * Pantalla de Inicio (especificación del 31 oct 2026):
- * - Arriba a la izquierda, los logos de TecNM e ITSUR y "Created by: Laicamist"; arriba a la derecha Historial, tema y
- *   Ajustes.
- * - Al centro el espacio del logo, el nombre, la línea de fases animada (un token viaja Léx → … → Opt) y los botones.
- * - Fondo decorativo de baja opacidad con referencias a la materia (se oculta en pantallas angostas).
+ * Pantalla de Inicio (especificación y boceto del 31 oct 2026):
+ * - Arriba a la izquierda, los logos de TecNM e ITSUR y "Created by: Laicamist"; arriba a la derecha los botones con
+ *   borde redondeado: Historial (ícono + texto), tema (ícono del modo actual) y Ajustes (engrane).
+ * - Al centro el logo de Java, el nombre, la entrada del ejemplo, el proceso animado ([PhasePipeline]) y los botones.
+ * - Fondo decorativo de baja opacidad con dibujos de la materia ([DecorativeBackground]; se oculta en pantallas
+ *   angostas).
  * - Abajo, el menú "¿Cómo funciona?": cada tema abre su hoja ([HelpSheet]).
- * - Tour de primer uso ([TourOverlay]) sobre la línea de fases, Nuevo trabajo, el menú y el Historial.
+ * - Tour de primer uso ([TourOverlay]) sobre el proceso, Nuevo trabajo, el menú y el Historial.
  */
 @Composable
 fun HomeScreen(
@@ -102,6 +106,7 @@ fun HomeScreen(
         val bounds = it.boundsInRoot()
         if (anchors[step] != bounds) anchors[step] = bounds
     }
+    val stages = remember(demo.report) { pipelineStages(demo.report) }
 
     BoxWithConstraints(
         modifier
@@ -110,67 +115,105 @@ fun HomeScreen(
             .onGloballyPositioned { rootOrigin = it.positionInRoot() }
     ) {
         val wide = maxWidth >= 600.dp
-        if (wide) DecorativeBackground()
+        // Alto suficiente para el logo grande (200 dp) sin que el centro tenga que desplazarse.
+        val roomy = maxHeight >= 800.dp
+        DecorativeBackground()
 
         Column(Modifier.fillMaxSize()) {
             // ------------------------------------------------------------ Barra superior
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = if (wide) 28.dp else 12.dp, vertical = if (wide) 16.dp else 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                InstitutionMark("TecNM")
-                Spacer(Modifier.size(6.dp))
-                InstitutionMark("ITSUR")
-                Spacer(Modifier.size(10.dp))
-                if (wide) Text("Created by: Laicamist", fontSize = 12.sp, color = colors.textMuted)
+                InstitutionLogos(height = if (wide) 48.dp else 32.dp)
+                if (wide) {
+                    Spacer(Modifier.width(14.dp))
+                    Box(Modifier.width(1.dp).height(36.dp).background(colors.borderStrong))
+                    Spacer(Modifier.width(14.dp))
+                    CreatedBy()
+                }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = onOpenHistory, modifier = Modifier.tourAnchor(TourStep.HISTORY)) {
-                    Text("Historial", fontSize = 13.sp, color = colors.textPrimary)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    HeaderLabeledButton(
+                        icon = HomeIcons.History,
+                        label = "Historial",
+                        showLabel = wide,
+                        onClick = onOpenHistory,
+                        modifier = Modifier.tourAnchor(TourStep.HISTORY)
+                    )
+                    ThemeModeButton(mode = themeMode, animationsEnabled = animationsEnabled, onChange = onThemeModeChange)
+                    HeaderIconButton(icon = HomeIcons.Settings, description = "Ajustes", onClick = onOpenSettings)
                 }
-                TextButton(onClick = { onThemeModeChange(nextThemeMode(themeMode)) }) {
-                    Text("Tema: ${themeMode.displayName}", fontSize = 13.sp, color = colors.textSecondary)
-                }
-                TextButton(onClick = onOpenSettings) { Text("Ajustes", fontSize = 13.sp, color = colors.textPrimary) }
             }
 
             // ------------------------------------------------------------ Centro
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Column(
                     modifier = Modifier
-                        .widthIn(max = 560.dp)
+                        .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 24.dp, vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    LogoSlot()
+                    JavaLogo(
+                        size = when {
+                            wide && roomy -> 200.dp
+                            wide -> 156.dp
+                            else -> 124.dp
+                        }
+                    )
+                    Spacer(Modifier.height(6.dp))
                     Text(
                         "J-Autómata Studio",
-                        fontSize = 34.sp,
-                        fontWeight = FontWeight.Bold,
+                        fontSize = if (wide) 40.sp else 30.sp,
+                        fontWeight = FontWeight.SemiBold,
                         fontFamily = JAutomataFonts.title,
+                        letterSpacing = (-0.5).sp,
                         color = colors.textPrimary,
                         textAlign = TextAlign.Center
                     )
-                    Text("Compilador didáctico · GLC v7", fontSize = 15.sp, color = colors.textSecondary)
-                    Spacer(Modifier.height(6.dp))
-                    PhaseLine(animationsEnabled, Modifier.tourAnchor(TourStep.PHASE_LINE))
-                    Spacer(Modifier.height(10.dp))
-                    Button(
-                        onClick = onNewWork,
-                        colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.onAccent),
-                        modifier = Modifier.fillMaxWidth().tourAnchor(TourStep.NEW_WORK)
-                    ) { Text("Nuevo trabajo", fontSize = 15.sp) }
-                    OutlinedButton(onClick = onOpenFile, modifier = Modifier.fillMaxWidth()) {
-                        Text("Abrir archivo .java / .txt", color = colors.textPrimary)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Compilador didáctico · GLC v7", fontSize = 16.sp, color = colors.textSecondary)
+                    Spacer(Modifier.height(if (roomy) 28.dp else 18.dp))
+
+                    Column(
+                        modifier = Modifier.widthIn(max = 960.dp).fillMaxWidth().tourAnchor(TourStep.PHASE_LINE),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        DemoInputChip()
+                        Spacer(Modifier.height(20.dp))
+                        PhasePipeline(stages = stages, animationsEnabled = animationsEnabled)
                     }
-                    if (hasWorkInProgress) {
-                        TextButton(onClick = onContinueWork, modifier = Modifier.fillMaxWidth()) {
-                            Text("Continuar con “$workInProgressTitle”", color = colors.textPrimary)
+
+                    Spacer(Modifier.height(if (roomy) 32.dp else 20.dp))
+                    Column(
+                        modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = onNewWork,
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.onAccent),
+                            modifier = Modifier.fillMaxWidth().height(54.dp).tourAnchor(TourStep.NEW_WORK)
+                        ) { Text("Nuevo trabajo", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                        OutlinedButton(
+                            onClick = onOpenFile,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().height(46.dp)
+                        ) {
+                            Text("Abrir archivo .java / .txt", color = colors.textPrimary)
                         }
+                        if (hasWorkInProgress) {
+                            TextButton(onClick = onContinueWork, modifier = Modifier.fillMaxWidth()) {
+                                Text("Continuar con “$workInProgressTitle”", color = colors.textPrimary)
+                            }
+                        }
+                        Text(historySummary, fontSize = 12.sp, color = colors.textMuted, textAlign = TextAlign.Center)
+                        if (!wide) Text("Created by: Laicamist", fontSize = 12.sp, color = colors.textMuted)
                     }
-                    Text(historySummary, fontSize = 12.sp, color = colors.textMuted, textAlign = TextAlign.Center)
-                    if (!wide) Text("Created by: Laicamist", fontSize = 12.sp, color = colors.textMuted)
                 }
             }
 
@@ -214,99 +257,73 @@ fun HomeScreen(
     }
 }
 
-/** Espacio para los logos institucionales (con fondo transparente); el autor coloca las imágenes oficiales. */
+/**
+ * Logos de TecNM e ITSUR (PNG con fondo transparente, `composeResources/drawable`). En el tema oscuro van sobre una
+ * placa clara: el azul marino del TecNM casi no se ve sobre el fondo negro.
+ */
 @Composable
-private fun InstitutionMark(name: String) {
+private fun InstitutionLogos(height: Dp) {
     val colors = JAutomataTheme.colors
-    Text(
-        name,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.Bold,
-        fontFamily = JAutomataFonts.title,
-        color = colors.textSecondary,
+    val shape = RoundedCornerShape(12.dp)
+    Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .border(1.dp, colors.border, RoundedCornerShape(6.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-    )
+            .clip(shape)
+            .background(if (colors.isDark) LOGO_PLATE else Color.Transparent)
+            .padding(horizontal = if (colors.isDark) 10.dp else 0.dp, vertical = if (colors.isDark) 5.dp else 0.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Image(
+            painter = painterResource(Res.drawable.tecnm),
+            contentDescription = "TecNM",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.height(height).aspectRatio(TECNM_RATIO)
+        )
+        Image(
+            painter = painterResource(Res.drawable.itsur),
+            contentDescription = "ITSUR",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.height(height).aspectRatio(ITSUR_RATIO)
+        )
+    }
 }
 
-/** Espacio reservado arriba del nombre para el logo de Java (marca de Oracle: lo coloca el autor). */
+/** Placa clara detrás de los logos en el tema oscuro (el mismo hueso del fondo del tema claro). */
+private val LOGO_PLATE = Color(0xFFF7F5F0)
+
+/** Proporción ancho / alto de los PNG (tecnm.png 337 × 483, itsur.png 480 × 414). */
+private const val TECNM_RATIO = 337f / 483f
+private const val ITSUR_RATIO = 480f / 414f
+
 @Composable
-private fun LogoSlot() {
+private fun CreatedBy() {
     val colors = JAutomataTheme.colors
+    Column {
+        Text("Created by:", fontSize = 12.sp, lineHeight = 16.sp, color = colors.textSecondary)
+        Text("Laicamist", fontSize = 15.sp, lineHeight = 19.sp, color = colors.textPrimary)
+    }
+}
+
+/** Logo de Java (`Logo_Java.png`) arriba del nombre, con un halo tenue del color de acento. */
+@Composable
+private fun JavaLogo(size: Dp) {
+    val colors = JAutomataTheme.colors
+    val glow = colors.accent.copy(alpha = if (colors.isDark) 0.14f else 0.10f)
     Box(
         modifier = Modifier
-            .size(72.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(colors.surface2)
-            .border(1.dp, colors.border, RoundedCornerShape(18.dp)),
+            .size(size)
+            .drawBehind {
+                val radius = this.size.minDimension / 2f
+                drawCircle(Brush.radialGradient(listOf(glow, Color.Transparent), center = center, radius = radius), radius = radius)
+            },
         contentAlignment = Alignment.Center
     ) {
-        Text("J", fontSize = 38.sp, fontWeight = FontWeight.Bold, fontFamily = JAutomataFonts.title, color = colors.accent)
-    }
-}
-
-/** Etapas de la línea de fases del Inicio (el árbol va entre el sintáctico y el semántico). */
-private enum class HomeStage(val label: String, val phase: CompilerPhase) {
-    LEX("Léx", CompilerPhase.LEXICAL),
-    SIN("Sin", CompilerPhase.SYNTACTIC),
-    TREE("Árbol", CompilerPhase.SYNTACTIC),
-    SEM("Sem", CompilerPhase.SEMANTIC),
-    CI("CI", CompilerPhase.INTERMEDIATE_CODE),
-    OPT("Opt", CompilerPhase.OPTIMIZATION)
-}
-
-/** Línea Léx → Sin → Árbol → Sem → CI → Opt con un token que la recorre (sin animación: todas encendidas). */
-@Composable
-private fun PhaseLine(animationsEnabled: Boolean, modifier: Modifier = Modifier) {
-    val colors = JAutomataTheme.colors
-    val stages = HomeStage.entries
-    val progress = if (animationsEnabled) {
-        val transition = rememberInfiniteTransition()
-        val value by transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(tween(durationMillis = 5_400, easing = LinearEasing), RepeatMode.Restart)
+        Image(
+            painter = painterResource(Res.drawable.Logo_Java),
+            contentDescription = "Logo de Java",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize()
         )
-        value
-    } else {
-        null
-    }
-    val active = progress?.let { (it * stages.size).toInt().coerceIn(0, stages.lastIndex) }
-
-    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            stages.forEachIndexed { index, stage ->
-                if (index > 0) Text("→", fontSize = 12.sp, color = colors.textMuted)
-                val color = if (stage == HomeStage.TREE) colors.syntactic else colors.phase(stage.phase)
-                val on = active == null || index <= active
-                Text(
-                    stage.label,
-                    fontSize = 13.sp,
-                    fontWeight = if (index == active) FontWeight.Bold else FontWeight.SemiBold,
-                    color = if (on) color else colors.textMuted,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .border(1.dp, if (on) color else colors.border, RoundedCornerShape(50))
-                        .background(if (index == active) color.copy(alpha = 0.16f) else colors.surface2)
-                        .padding(horizontal = 10.dp, vertical = 5.dp)
-                )
-            }
-        }
-        if (progress != null) {
-            // El token que viaja por la línea.
-            Canvas(Modifier.fillMaxWidth(0.9f).height(12.dp)) {
-                val y = size.height / 2f
-                drawLine(colors.border, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
-                val x = size.width * progress
-                drawCircle(colors.phase(stages[active ?: 0].phase), radius = 4.5.dp.toPx(), center = Offset(x, y))
-            }
-        }
     }
 }
 
@@ -326,41 +343,3 @@ private fun HelpChip(topic: HelpTopic, selected: Boolean, onClick: () -> Unit) {
             .padding(horizontal = 12.dp, vertical = 6.dp)
     )
 }
-
-/** Referencias de la materia, muy tenues, repartidas por el fondo. */
-@Composable
-private fun DecorativeBackground() {
-    val colors = JAutomataTheme.colors
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val w = maxWidth
-        val h = maxHeight
-        for (item in DECORATIONS) {
-            Text(
-                item.text,
-                fontSize = item.size.sp,
-                fontFamily = JAutomataFonts.code,
-                color = colors.textPrimary.copy(alpha = 0.07f),
-                modifier = Modifier.offset(x = w * item.x, y = h * item.y)
-            )
-        }
-    }
-}
-
-private class Decoration(val text: String, val x: Float, val y: Float, val size: Int)
-
-private val DECORATIONS = listOf(
-    Decoration("q0 —letra→ q1 —dígito→ q2", 0.04f, 0.16f, 15),
-    Decoration("δ(q0, a) = q1", 0.70f, 0.13f, 16),
-    Decoration("[a-zA-Z_][a-zA-Z0-9_]*", 0.06f, 0.30f, 14),
-    Decoration("E → E + T | T", 0.74f, 0.30f, 17),
-    Decoration("T → T * F | F", 0.75f, 0.36f, 15),
-    Decoration("L = { aⁿbⁿ | n ≥ 1 }", 0.05f, 0.48f, 16),
-    Decoration("Σ = { a, b }", 0.80f, 0.50f, 18),
-    Decoration("S ⇒* w", 0.10f, 0.64f, 20),
-    Decoration("⟨ID, x⟩  ⟨ODA, =⟩  ⟨VTE, 5⟩", 0.64f, 0.64f, 14),
-    Decoration("(5, +, 3, T1)", 0.08f, 0.78f, 16),
-    Decoration("T1 = 5 + 3", 0.76f, 0.78f, 16),
-    Decoration("ε", 0.30f, 0.86f, 28),
-    Decoration("λ", 0.62f, 0.88f, 26),
-    Decoration("DEC → TY ID ODA EXP FI", 0.32f, 0.08f, 14)
-)

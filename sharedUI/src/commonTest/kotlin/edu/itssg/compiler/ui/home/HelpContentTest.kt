@@ -48,6 +48,26 @@ class HelpContentTest {
     }
 
     @Test
+    fun procesoDelInicioConDatosReales() {
+        val stages = pipelineStages(demo)
+        assertEquals(listOf("Lex", "Sin", "Árb", "Sem", "CI", "Opt"), stages.map { it.abbr })
+        assertEquals("int · x · = · 5\n+ · 3 · ;", stages[0].sample)
+        assertEquals("DEC → TY ID\nODA EXP FI", stages[1].sample)
+        assertEquals("x : int\nint ← int ✓", stages[3].sample)
+        assertEquals("(5, +, 3, 8)\n3 cuádruplos", stages[4].sample)
+        assertEquals("(PMAIN, SOUT, 8, 8)\n3 → 1", stages[5].sample)
+        // Sin reporte (el ejemplo aún compila) se muestran los mismos textos fijos.
+        assertEquals(stages.map { it.sample }, pipelineStages(null).map { it.sample })
+    }
+
+    @Test
+    fun produccionEnDosRenglones() {
+        assertEquals("DEC → TY ID\nODA EXP FI", splitProduction("DEC → TY ID ODA EXP FI"))
+        assertEquals("S → a b", splitProduction("S → a b"))
+        assertEquals("sin flecha", splitProduction("sin flecha"))
+    }
+
+    @Test
     fun temaYTour() {
         assertEquals(ThemeMode.LIGHT, nextThemeMode(ThemeMode.SYSTEM))
         assertEquals(ThemeMode.SYSTEM, nextThemeMode(ThemeMode.DARK))
