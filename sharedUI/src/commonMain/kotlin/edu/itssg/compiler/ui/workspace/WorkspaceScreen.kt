@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import edu.itssg.compiler.core.security.CompilerSecurityConfig
+import edu.itssg.compiler.examples.ClassExample
 import edu.itssg.compiler.ui.data.AppSettings
 import edu.itssg.compiler.ui.editor.CodeEditor
 import edu.itssg.compiler.ui.editor.EditorDiagnostics
@@ -87,6 +88,8 @@ import kotlinx.coroutines.launch
  * ([ResultsPanel]: Tokens, Símbolos, Árbol y Código intermedio) y abajo la Tabla de Errores plegable y con
  * altura ajustable. El visor de árboles (Paso 3.4) marca en el editor el fragmento del nodo elegido.
  *
+ * El menú "Ejemplos" abre los programas de las láminas de clase ([ExampleMenuModel]).
+ *
  * Atajos: Ctrl+S guardar · Ctrl+O abrir · Ctrl+E exportar · F5 o Ctrl+Enter compilar todo · F6 paso a paso.
  * Volver al Inicio no descarta nada: el trabajo sigue en el ViewModel y se puede continuar desde ahí.
  *
@@ -108,7 +111,8 @@ fun WorkspaceScreen(
     val colors = JAutomataTheme.colors
     val scope = rememberCoroutineScope()
 
-    var confirmOpen by remember { mutableStateOf(false) }
+    /** Acción que reemplaza el documento (Abrir o un ejemplo) en espera de confirmar los cambios sin guardar. */
+    var pendingReplace by remember { mutableStateOf<(() -> Unit)?>(null) }
     var showRename by remember { mutableStateOf(false) }
 
     val picker = rememberSourceFilePicker(securityConfig) { result ->
@@ -121,9 +125,16 @@ fun WorkspaceScreen(
         }
     }
 
-    /** Abrir reemplaza el documento: si hay cambios sin guardar, pregunta primero. */
-    fun openFile() {
-        if (state.hasUnsavedChanges) confirmOpen = true else picker.launch()
+    /** Abrir o cargar un ejemplo reemplaza el documento: si hay cambios sin guardar, pregunta primero. */
+    fun replaceDocument(action: () -> Unit) {
+        if (state.hasUnsavedChanges) pendingReplace = action else action()
+    }
+
+    fun openFile() = replaceDocument { picker.launch() }
+
+    fun openExample(example: ClassExample) = replaceDocument {
+        viewModel.openSource(title = example.fileName, source = example.source)
+        onMessage(ExampleMenuModel.openedMessage(example), false)
     }
 
     // Errores que marca el editor: los de la compilación si el reporte corresponde al texto; si no, los léxicos
@@ -170,6 +181,7 @@ fun WorkspaceScreen(
             onHome = onNavigateHome,
             onRename = { showRename = true },
             onOpen = ::openFile,
+            onOpenExample = ::openExample,
             onSave = { viewModel.saveSession() },
             onExport = onExport,
             onStepByStep = viewModel::startStepByStep,
@@ -331,24 +343,24 @@ fun WorkspaceScreen(
         }
     }
 
-    if (confirmOpen) {
+    pendingReplace?.let { action ->
         UnsavedChangesDialog(
             title = state.sessionTitle,
             isSaving = state.isSaving,
             onDiscard = {
-                confirmOpen = false
-                picker.launch()
+                pendingReplace = null
+                action()
             },
             onSaveAndContinue = {
                 scope.launch {
                     viewModel.saveSession()
                     // saveSession marca isSaving de inmediato (viewModelScope usa Main.immediate).
                     val saved = viewModel.uiState.first { !it.isSaving }
-                    confirmOpen = false
-                    if (!saved.hasUnsavedChanges) picker.launch()
+                    pendingReplace = null
+                    if (!saved.hasUnsavedChanges) action()
                 }
             },
-            onCancel = { confirmOpen = false }
+            onCancel = { pendingReplace = null }
         )
     }
 
@@ -372,6 +384,7 @@ private fun WorkspaceTopBar(
     onHome: () -> Unit,
     onRename: () -> Unit,
     onOpen: () -> Unit,
+    onOpenExample: (ClassExample) -> Unit,
     onSave: () -> Unit,
     onExport: () -> Unit,
     onStepByStep: () -> Unit,
@@ -413,6 +426,7 @@ private fun WorkspaceTopBar(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             TextButton(onClick = onOpen) { Text("Abrir", color = colors.textPrimary) }
+            ExamplesMenuButton(onPick = onOpenExample, enabled = !state.isCompiling)
             TextButton(onClick = onSave, enabled = !state.isSaving && state.sourceCode.isNotBlank()) {
                 if (state.isSaving) {
                     CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = colors.accent)

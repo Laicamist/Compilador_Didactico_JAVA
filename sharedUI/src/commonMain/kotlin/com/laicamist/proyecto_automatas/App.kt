@@ -29,6 +29,7 @@ import edu.itssg.compiler.ui.files.SourceLoadResult
 import edu.itssg.compiler.ui.files.rememberSourceFilePicker
 import edu.itssg.compiler.ui.history.HistoryScreen
 import edu.itssg.compiler.ui.home.HomeScreen
+import edu.itssg.compiler.ui.navigation.PlatformBackHandler
 import edu.itssg.compiler.ui.state.ResultTab
 import edu.itssg.compiler.ui.state.TreeKind
 import edu.itssg.compiler.ui.viewmodel.AppViewModel
@@ -103,6 +104,9 @@ fun App(container: AppContainer) {
     fun replaceWork(action: () -> Unit) {
         if (workspaceState.hasUnsavedChanges) pendingHomeAction = action else action()
     }
+
+    // Android: Atrás cierra la ayuda o el tour, o regresa a la pantalla anterior; en Inicio lo atiende el sistema.
+    PlatformBackHandler(enabled = appState.handlesSystemBack) { appViewModel.onSystemBack() }
 
     // Mientras se leen los ajustes guardados se muestra solo el fondo, para no parpadear con el tema por defecto.
     val themeMode = if (appState.settingsLoaded) appState.settings.themeMode else ThemeMode.SYSTEM

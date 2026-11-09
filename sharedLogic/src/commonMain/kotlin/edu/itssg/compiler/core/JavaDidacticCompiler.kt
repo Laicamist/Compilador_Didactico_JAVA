@@ -86,19 +86,26 @@ class JavaDidacticCompiler(
         sourceCode: String,
         useVSTAliasInTable: Boolean = false
     ): CompilationReport = withContext(Dispatchers.Default) {
-        coroutineContext.ensureActive()
+        val context = coroutineContext
+        context.ensureActive()
+        // "Cancelar" en la interfaz se atiende entre fases: la fase en curso termina y las siguientes ya no corren.
         compileSynchronously(
             sourceCode = sourceCode,
-            useVSTAliasInTable = useVSTAliasInTable
+            useVSTAliasInTable = useVSTAliasInTable,
+            checkpoint = { context.ensureActive() }
         )
     }
 
     /**
      * Ejecución determinista síncrona (útil para pruebas unitarias en `commonTest`).
+     *
+     * @param checkpoint Se llama entre fases; [compileAsync] lo usa para detener la compilación cancelada
+     * (lanza `CancellationException`). Por defecto no hace nada.
      */
     fun compileSynchronously(
         sourceCode: String,
-        useVSTAliasInTable: Boolean = false
+        useVSTAliasInTable: Boolean = false,
+        checkpoint: () -> Unit = {}
     ): CompilationReport {
         val errorReporter = ErrorReporter(config = securityConfig)
 
@@ -106,11 +113,15 @@ class JavaDidacticCompiler(
         val lexerResult = lexer.tokenize(sourceCode)
         errorReporter.ingestLexicalAnomalies(lexerResult.lexicalAnomalies)
 
+        checkpoint()
+
         // FASE 2: Análisis Sintáctico (GLC v7) y Árbol Sintáctico
         val parserResult = parser.parse(
             tokens = lexerResult.tokens,
             errorReporter = errorReporter
         )
+
+        checkpoint()
 
         // FASE 3: Análisis Semántico, Árbol Abstracto-Semántico y numeración definitiva de la Tabla de Símbolos
         val semanticResult = semanticAnalyzer.analyze(
@@ -120,11 +131,17 @@ class JavaDidacticCompiler(
         )
         val finalTokens = renumberTokens(lexerResult.tokens, semanticResult.resolvedTokenSymbols)
 
+        checkpoint()
+
         // FASE 4: Generación de Código Intermedio (Triplos, Cuádruplos y Tres Direcciones)
         val rawIrBundle = irGenerator.generate(semanticResult.abstractSemanticTree)
 
+        checkpoint()
+
         // FASE 5: Optimización de Código Intermedio (Unidad 3)
         val optimizationResult = codeOptimizer.optimize(rawIrBundle)
+
+        checkpoint()
 
         // Construir vistas tabulares inmutables
         val lexicalRows = lexerResult.symbolTable.buildLexicalTableRows(

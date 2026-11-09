@@ -78,8 +78,11 @@
 
 - Límites de profundidad (256 reglas, 32 paréntesis anidados, 256 operaciones encadenadas), 20,000 nodos en el árbol abstracto y 16 llamadas anidadas: el análisis no desborda la pila ni con hilos de 512 KB (iOS).
 - Verificado con 4,000 entradas aleatorias o mutadas sin excepciones; expansión exponencial, recursión y ciclos entre atributos terminan en menos de 1 s.
+- Cancelación: `compileAsync` revisa la cancelación entre cada fase (`checkpoint` de `compileSynchronously`), así que "Cancelar" detiene las fases que faltan.
 
-## Pruebas
+## 8.1 Biblioteca de ejemplos
+
+`examples/ClassExamples.kt`: los programas de las láminas (Uno, Nueva, A, Lunes, Viernes, Facil) y los de las tablas de errores (Facilito, End Fin, A con errores semánticos). Los usa el menú "Ejemplos" del espacio de trabajo y son las mismas cadenas que valida `ClassExamplesTest`.
 
 ## 9. Persistencia (SQLDelight)
 
@@ -93,8 +96,9 @@
 | Archivo | Qué cubre |
 |---|---|
 | `ClassExamplesTest` | Ejemplos de las láminas U1–U3 renglón por renglón |
+| `ClassExampleCatalogTest` | Biblioteca del menú "Ejemplos": cada programa compila como indica su ficha |
 | `JavaMethodsTest` | String, Scanner, Math, conversiones, `import` y letras |
-| `OptimizationAndRobustnessTest` | Técnicas de la U3, entradas corruptas y anti-DoS |
+| `OptimizationAndRobustnessTest` | Técnicas de la U3, entradas corruptas, anti-DoS y cancelación entre fases |
 | `ThreeAddressTraceTest` | Traza de temporales y pendientes de 3 direcciones |
 | `SemanticRegressionTest` | Reasignaciones, ámbitos de bloque, asignación definitiva, observaciones y literales (7 nov 2026) |
 

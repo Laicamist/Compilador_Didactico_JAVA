@@ -12,7 +12,7 @@ Simulador didáctico del compilador de Java para la materia **Lenguajes y Autóm
 | Código intermedio | Triplos, cuádruplos y 3 direcciones (T1–T3, `free`, pendientes `Pn`) |
 | Optimización (U3) | `SE`, `FO`, `PC`, `RS`, `CM` y su variante `D`, con la tabla de la materia |
 
-Además: editor con resaltado, errores en línea, deshacer/rehacer, buscar y reemplazar; paneles tabulares que se pueden filtrar, ordenar y copiar; visor de árboles con zoom, plegado, minimapa y recorrido animado (derivación, cuádruplos y 3 direcciones); historial y ajustes guardados con SQLDelight; exportación a PDF, CSV, PNG/SVG y `.java` (en Desktop a `Documentos/J-Autómata Studio`, en Android a `Descargas/J-Autómata Studio`).
+Además: menú **Ejemplos** con los programas de las láminas de clase (U1–U3) y de las tablas de errores; editor con resaltado, errores en línea, deshacer/rehacer, buscar y reemplazar; paneles tabulares que se pueden filtrar, ordenar y copiar; visor de árboles con zoom, plegado, minimapa y recorrido animado (derivación, cuádruplos y 3 direcciones); historial y ajustes guardados con SQLDelight; exportación a PDF, CSV, PNG/SVG y `.java` (en Desktop a `Documentos/J-Autómata Studio`, en Android a `Descargas/J-Autómata Studio`).
 
 ## Estructura
 
@@ -49,11 +49,25 @@ Reglas implementadas y su fuente en las láminas: [`docs/BACKEND_REGLAS.md`](doc
 
 En Windows usa `gradlew.bat` en lugar de `./gradlew`.
 
+## Instalador de escritorio
+
+```bash
+# Genera el instalador del sistema actual (MSI en Windows, DMG en macOS, DEB en Linux)
+./gradlew :desktopApp:packageDistributionForCurrentOS
+# Prueba la app ya empaquetada (con el JRE recortado) sin instalarla
+./gradlew :desktopApp:runDistributable
+```
+
+El instalador queda en `desktopApp/build/compose/binaries/main/`. Se llama "J-Automata Studio" (sin acento, para evitar
+problemas de jpackage/WiX con caracteres fuera de ASCII) e incluye los módulos `java.sql` y `java.logging` que necesita
+SQLite. El historial y los ajustes se guardan en `~/.itssg_compiler_data`, así que reinstalar no los borra.
+
 ## Estado
 
 - Fase 2 (backend) y Fase 3 (frontend) implementadas: Inicio con hojas "¿Cómo funciona?" y tour, espacio de trabajo,
   paneles tabulares, visor de árboles, Historial, Ajustes y exportación (PDF, CSV, PNG/SVG de los árboles y `.java`).
-- Pendiente: empaquetado de escritorio, ajustes finales de Android e iOS.
+- Escritorio: instalador con nombre, ícono y tamaño mínimo de ventana. Android: ícono adaptable y botón Atrás entre pantallas.
+- Pendiente: iOS (requiere Mac con Xcode) y la Etapa D de implementaciones adicionales.
 
 ---
 

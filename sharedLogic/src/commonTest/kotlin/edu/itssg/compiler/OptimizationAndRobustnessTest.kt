@@ -267,4 +267,24 @@ class OptimizationAndRobustnessTest {
         val overflow = wide.intermediateCode.threeAddress.filter { it.targetLabel.startsWith("T4") }
         assertTrue(overflow.all { it.freeNote.orEmpty().contains("excede") })
     }
+
+    // ------------------------------------------------------------------ Cancelación entre fases (P6)
+
+    @Test
+    fun laCompilacionSeDetieneEnElPuntoDeControlSiguiente() {
+        class Cancelled : RuntimeException()
+        val source = "public class P{ int a = 1+2; public static void main(String[] x){ System.out.println(new P().a);}}"
+        var checkpoints = 0
+        val completed = compiler.compileSynchronously(source, checkpoint = { checkpoints++ })
+        assertEquals(5, checkpoints, "Un punto de control después de cada una de las 5 fases")
+        assertTrue(completed.errors.isEmpty())
+
+        // Cancelar después del análisis sintáctico: las fases siguientes ya no corren.
+        var calls = 0
+        val stopped = runCatching {
+            compiler.compileSynchronously(source, checkpoint = { if (++calls == 2) throw Cancelled() })
+        }
+        assertTrue(stopped.exceptionOrNull() is Cancelled)
+        assertEquals(2, calls)
+    }
 }

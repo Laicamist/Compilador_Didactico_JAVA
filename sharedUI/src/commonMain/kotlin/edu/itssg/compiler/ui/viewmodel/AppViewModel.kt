@@ -66,6 +66,9 @@ data class AppUiState(
 ) {
     val currentScreen: AppScreen get() = backStack.last()
     val canNavigateBack: Boolean get() = backStack.size > 1
+
+    /** `true` si el botón Atrás del sistema (Android) tiene algo que cerrar dentro de la app. */
+    val handlesSystemBack: Boolean get() = openHelpTopic != null || tourStep != null || canNavigateBack
 }
 
 /**
@@ -126,6 +129,19 @@ class AppViewModel(
         if (!state.value.canNavigateBack) return false
         state.update { it.copy(backStack = it.backStack.dropLast(1)) }
         return true
+    }
+
+    /**
+     * Botón Atrás del sistema (Android): cierra la hoja de ayuda abierta, si no salta el tour y si no regresa a la
+     * pantalla anterior. @return `false` si no había nada que cerrar (en Inicio el sistema cierra la app).
+     */
+    fun onSystemBack(): Boolean {
+        val current = state.value
+        return when {
+            current.openHelpTopic != null -> { closeHelp(); true }
+            current.tourStep != null -> { finishTour(); true }
+            else -> navigateBack()
+        }
     }
 
     // ------------------------------------------------------------------ Hojas de ayuda

@@ -3,6 +3,7 @@ package edu.itssg.compiler
 import edu.itssg.compiler.core.CompilationReport
 import edu.itssg.compiler.core.JavaDidacticCompiler
 import edu.itssg.compiler.core.error.ErrorPhaseType
+import edu.itssg.compiler.examples.ClassExamples
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -21,15 +22,7 @@ class ClassExamplesTest {
 
     // ------------------------------------------------------------------ U2: clase Uno
 
-    private val uno = """
-        public class Uno{
-        float dos = 3;
-        float tres = dos+ 1;
-        public void cuatro(int cinco){
-        System.out.println( 45.0 + ( cinco * tres) );}
-        public static void main(String []args){
-        new Uno().cuatro('@');}}
-    """.trimIndent()
+    private val uno = ClassExamples.UNO.source
 
     @Test
     fun unoCuadruplosIgualQueLaLamina() {
@@ -63,15 +56,7 @@ class ClassExamplesTest {
 
     // ------------------------------------------------------------------ U2: clase Nueva
 
-    private val nueva = """
-        public class Nueva{
-        float numero;
-        double suma= 1+ numero;
-        double total = suma+(15/4);
-        public static void main(String [] c){
-        System.out.println(new Nueva().total);}
-        }
-    """.trimIndent()
+    private val nueva = ClassExamples.NUEVA.source
 
     @Test
     fun nuevaCuadruplosYTresDireccionesIgualQueLaLamina() {
@@ -111,17 +96,7 @@ class ClassExamplesTest {
     @Test
     fun claseAOrdenDeEjecucionPorNiveles() {
         val r = compile(
-            """
-            public class A{
-            public int a= 35/4+10/3 ;
-            int uno = ++a;
-            private double dos= uno*(5-10);
-            double tres= "hola".length()*30;
-            public float cuatro=(float)( dos+tres*dos);
-            public static void main(String [] q){
-            System.out.println(new A().cuatro);}
-            }
-            """.trimIndent()
+            ClassExamples.A_NIVELES.source
         )
         assertTrue(r.errors.isEmpty(), "Sin errores: ${r.errors}")
         val triples = r.intermediateCode.triples.map { it.formatAcademic() }
@@ -145,17 +120,7 @@ class ClassExamplesTest {
     @Test
     fun lunesTablaDeSimbolosYValores() {
         val r = compile(
-            """
-            public class Lunes{
-            int a= 'F';
-            private char b= 99/10;
-            int c= b+1;
-            public char qwerty(int numero){
-            String a= "1" ;
-            return (char)(b + (a+c).length()+numero);}
-            public static void main(String [] arreglo){
-            System.out.println(new Lunes().qwerty(a));}}
-            """.trimIndent()
+            ClassExamples.LUNES.source
         )
         assertTrue(r.errors.isEmpty(), "Sin errores: ${r.errors}")
         val symbols = r.symbolEntries.associate { it.symbolId to it.lexeme }
@@ -168,16 +133,7 @@ class ClassExamplesTest {
     @Test
     fun viernesTablaDeSimbolos() {
         val r = compile(
-            """
-            package asesorias;
-            public class Viernes{
-            public double a (int x, String y){
-            int variable = (int)(Math.random()*2);
-            return x*variable+variable/3;}
-            public static void main(String [] a){
-            int num = '@'/10;
-            System.out.println(new Viernes().a(num, "URIANGATO"));}}
-            """.trimIndent()
+            ClassExamples.VIERNES.source
         )
         assertTrue(r.errors.isEmpty(), "Sin errores: ${r.errors}")
         assertEquals(
@@ -192,16 +148,7 @@ class ClassExamplesTest {
     @Test
     fun facilTablaDeOptimizacion() {
         val r = compile(
-            """
-            public class Facil{
-            public double a(){
-            float v = 33+2;
-            double z = (99+10)/1;
-            return z*3+v;}
-            public static void main(String[]a){
-            System.out.println(new Facil().a());}
-            }
-            """.trimIndent()
+            ClassExamples.FACIL.source
         )
         assertTrue(r.errors.isEmpty(), "Sin errores: ${r.errors}")
         val q = quads(r)
@@ -230,17 +177,7 @@ class ClassExamplesTest {
     @Test
     fun erroresDeLaUnidad1() {
         val r = compile(
-            """
-            pakage lya;
-            public class Facilito {
-            float toma=10/3.0;
-            int tu= 999@2 _
-            float tiempo= tu/3-toma*70;
-            public char operaciones (String deTrabajo)
-            int 4a=deTrabajo.length+tiempo;
-            return a; }
-            }
-            """.trimIndent()
+            ClassExamples.FACILITO.source
         )
         val byType = r.errors.groupBy { it.type }
         assertTrue(byType[ErrorPhaseType.LEXICAL].orEmpty().any { it.offendingLexeme == "@" &&
@@ -257,18 +194,7 @@ class ClassExamplesTest {
     @Test
     fun erroresSintacticosEndFin() {
         val r = compile(
-            """
-            package CODIGOS;
-            public class End Fin {
-            static int a ;
-            float b=3.5;
-            int private c=9;
-            public static void main(int [] args) {
-            int 9x=3;
-            System.out.println(args[0]);
-            double z=x*35/4 }
-            Double a; }
-            """.trimIndent()
+            ClassExamples.END_FIN.source
         )
         val syntactic = r.errors.filter { it.type == ErrorPhaseType.SYNTACTIC }.map { it.justification }
         assertTrue(syntactic.any { it.startsWith("No cumple la regla CLASE, se esperaba un LLA y se encuentra un ID") })
@@ -281,14 +207,7 @@ class ClassExamplesTest {
     @Test
     fun erroresSemanticosDeTipos() {
         val r = compile(
-            """
-            public class A{
-            public int a;
-            private double dos= uno*(5-10);
-            char tres= "hola";
-            public float cuatro= dos+(25+(10/(3- 1))+10*5);
-            }
-            """.trimIndent()
+            ClassExamples.A_ERRORES.source
         )
         val semantic = r.errors.filter { it.type == ErrorPhaseType.SEMANTIC }
         assertTrue(semantic.any { it.offendingLexeme == "uno" })
