@@ -352,8 +352,8 @@ enum class SemanticNodeKind(val isOperation: Boolean) {
  * - La ejecución es de abajo hacia arriba y de izquierda a derecha; [evaluationStepNumber] es ese orden
  *   y coincide con el número de renglón del código intermedio.
  *
- * @property referencedNodeId Para hojas `IDn` que reutilizan un valor ya calculado en una instrucción previa del
- *   método principal (p. ej. `a = b + 5*2;` reutiliza el paso de `b`): id del nodo que lo calculó.
+ * @property referencedNodeId Sin uso desde el 10 nov 2026 (siempre `null`): los IDs del main ya no se enlazan con el
+ *   nodo que calculó su valor, sino que se derivan donde se usan. Se conserva por compatibilidad.
  * @property callName En el miembro de una llamada a un método de Java (`charAt(0)`), el nombre del método; sus
  *   [children] son los argumentos (los que son operaciones se calculan antes, en su propio renglón).
  */

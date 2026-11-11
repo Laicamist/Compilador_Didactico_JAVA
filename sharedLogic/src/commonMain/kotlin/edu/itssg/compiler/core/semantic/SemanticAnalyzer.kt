@@ -925,6 +925,15 @@ class SemanticAnalyzer(
         /** Incrementos del main ya aplicados (por posición del operador): valor anterior y paso del incremento. */
         private val appliedIncrements = HashMap<Int, Pair<SemanticAstNode, SemanticAstNode>>()
 
+        /**
+         * Definiciones del main (declaración, asignación o paso de `a++`) que todavía cuelgan de la raíz porque
+         * ninguna instrucción las ha usado.
+         */
+        private val pendingDefinitions = HashSet<Int>()
+
+        /** Definiciones del main que ya se derivaron en el lugar de su primer uso (dejan de colgar de la raíz). */
+        private val derivedDefinitions = HashSet<Int>()
+
         /** Observaciones sin repetir (una por tipo y posición), en orden de aparición. */
         private val noteMap = LinkedHashMap<Pair<CompilerNoteKind, Int>, CompilerNote>()
 
@@ -970,6 +979,7 @@ class SemanticAnalyzer(
                     pendingIncrements.clear()
                     node?.let { children += it }
                 }
+                removeDerivedDefinitions(children)
             }
             val last = children.lastOrNull()
             return SemanticAstNode(
@@ -983,6 +993,53 @@ class SemanticAnalyzer(
                 children = children,
                 span = main?.span ?: rootSpan
             )
+        }
+
+        /**
+         * Un ID declarado en el main se deriva desde donde se usa (U1: cada uso se sustituye por su asignación), igual
+         * que los atributos y las variables de los métodos: su rama `IDn =` deja de colgar de la raíz. Solo las
+         * definiciones que ninguna instrucción usa se quedan como rama propia del main.
+         */
+        private fun removeDerivedDefinitions(children: MutableList<SemanticAstNode>) {
+            if (derivedDefinitions.isEmpty()) return
+            // Por seguridad, solo se quita de la raíz lo que de verdad quedó derivado dentro de otra instrucción.
+            val placed = HashSet<Int>()
+            val stack = ArrayDeque<SemanticAstNode>()
+            for (statement in children) stack.addAll(statement.children)
+            while (stack.isNotEmpty()) {
+                val node = stack.removeLast()
+                if (node.id in derivedDefinitions) placed += node.id
+                stack.addAll(node.children)
+            }
+            children.removeAll { it.id in placed }
+        }
+
+        /**
+         * Valor actual de un ID del main en el lugar donde se usa: el primer uso se lleva la rama de su definición
+         * (que colgaba de la raíz) y los siguientes la repiten, como cualquier valor que se sustituye.
+         */
+        private fun deriveDefinition(definition: SemanticAstNode): SemanticAstNode {
+            if (pendingDefinitions.remove(definition.id)) {
+                derivedDefinitions += definition.id
+                return definition
+            }
+            return repeated(definition)
+        }
+
+        /** Copia de una rama ya colocada en el árbol, con identificadores de nodo nuevos. */
+        private val repeated = DeepRecursiveFunction<SemanticAstNode, SemanticAstNode> { node ->
+            if (budgetExceeded) unknownLeaf("…", node.span)
+            else {
+                val children = ArrayList<SemanticAstNode>(node.children.size)
+                for (c in node.children) children += callRecursive(c)
+                node.copy(id = id(), children = children)
+            }
+        }
+
+        /** Registra la definición vigente de un ID del main; cuelga de la raíz mientras nadie la use. */
+        private fun define(b: Binding, definition: SemanticAstNode, frame: Frame) {
+            frame.materialized[b] = definition
+            pendingDefinitions += definition.id
         }
 
         /** Nodo de una instrucción del main o de un método invocado (las declaraciones del método son perezosas). */
@@ -1007,7 +1064,7 @@ class SemanticAnalyzer(
                 val init = s.init
                 // Un valor que el sintáctico no pudo derivar completo (ErrorExpr) no se representa: el ID queda sin valor.
                 if (b == null || init == null || init is ErrorExpr || !frame.isMain) null
-                else assignment(b, expand(init, frame), s.span).also { frame.materialized[b] = it }
+                else assignment(b, expand(init, frame), s.span).also { define(b, it, frame) }
             }
             is AssignStmt -> {
                 val b = tokenBinding[s.target.span.start.offset]
@@ -1020,7 +1077,7 @@ class SemanticAnalyzer(
                         null
                     }
                     else -> assignment(b, expand(s.value, frame), s.span).also {
-                        frame.materialized[b] = it
+                        define(b, it, frame)
                         mainOpaque.remove(b)
                     }
                 }
@@ -1037,16 +1094,16 @@ class SemanticAnalyzer(
                         s.span,
                         type = SemanticDataType.CLASS_INSTANCE
                     )
-                    assignment(b, value, s.span).also { frame.materialized[b] = it }
+                    assignment(b, value, s.span).also { define(b, it, frame) }
                 }
             }
             is ExprStmt -> {
-                // `a++;` / `--a;` como instrucción del main: los usos siguientes de `a` reutilizan este paso.
+                // `a++;` / `--a;` como instrucción del main: los usos siguientes de `a` se derivan de este paso.
                 // (Como instrucción, `a++` y `++a` son lo mismo: no hay un valor anterior que se use.)
                 val incremented = incrementedBinding(s.expr)
                 if (frame.isMain && incremented != null) {
                     incrementNode(s.expr as UnaryExpr, frame).also {
-                        frame.materialized[incremented] = it
+                        define(incremented, it, frame)
                         mainOpaque.remove(incremented)
                     }
                 } else {
@@ -1314,13 +1371,8 @@ class SemanticAnalyzer(
                     val (argExpr, callerFrame) = frame.params.getValue(b)
                     assignment(b, expand(argExpr, callerFrame), token.span)
                 }
-                frame.isMain && frame.materialized.containsKey(b) -> {
-                    val node = frame.materialized.getValue(b)
-                    leaf(
-                        SemanticNodeKind.IDENTIFIER_REF, "ID${b.id}", node.evaluatedValue, token.span,
-                        type = node.resolvedType, symbolId = b.id, referencedNodeId = node.id
-                    )
-                }
+                // ID declarado en el main: se deriva aquí, donde se usa, con la definición vigente en este momento.
+                frame.isMain && frame.materialized.containsKey(b) -> deriveDefinition(frame.materialized.getValue(b))
                 else -> leaf(SemanticNodeKind.IDENTIFIER_REF, "ID${b.id}", EvaluatedValue.UnknownVal, token.span,
                     type = b.type, symbolId = b.id)
             }
@@ -1380,21 +1432,15 @@ class SemanticAnalyzer(
         private fun expandIncrementInMain(expr: UnaryExpr, b: Binding, frame: Frame): SemanticAstNode {
             val key = expr.operator.span.start.offset
             // Un argumento se expande cada vez que el método usa su parámetro: el incremento se aplica una sola vez.
-            appliedIncrements[key]?.let { (before, step) ->
-                val target = if (expr.isPrefix) step else before
-                // Una hoja se puede repetir con un id nuevo; un paso con hijos se referencia (como `[n]`).
-                return if (target.children.isEmpty()) target.copy(id = id())
-                else leaf(
-                    SemanticNodeKind.IDENTIFIER_REF, "ID${b.id}", target.evaluatedValue, expr.span,
-                    type = target.resolvedType, symbolId = b.id, referencedNodeId = target.id
-                )
-            }
-            val before = expand(expr.operand, frame)
+            appliedIncrements[key]?.let { (before, step) -> return repeated(if (expr.isPrefix) step else before) }
+            // El paso del incremento se lleva la definición anterior; el valor anterior (postfijo) la repite.
             val step = incrementNode(expr, frame)
+            val before = if (expr.isPrefix) step else expand(expr.operand, frame)
             appliedIncrements[key] = before to step
             frame.materialized[b] = step
             mainOpaque.remove(b)
             if (expr.isPrefix) return step
+            pendingDefinitions += step.id
             pendingIncrements += step
             return before
         }
@@ -1467,7 +1513,10 @@ class SemanticAnalyzer(
                     is NewExpr -> expand(target, frame)
                     is NameExpr -> {
                         val tb = tokenBinding[target.token.span.start.offset]
-                        if (tb != null && tb.role != SymbolRole.CLASS) {
+                        if (tb != null && frame.isMain && !frame.opaque.containsKey(tb) && frame.materialized.containsKey(tb)) {
+                            // Objeto declarado en el main (`A obj = new A(); obj.m();`): también se deriva donde se usa.
+                            deriveDefinition(frame.materialized.getValue(tb))
+                        } else if (tb != null && tb.role != SymbolRole.CLASS) {
                             leaf(SemanticNodeKind.IDENTIFIER_REF, "ID${tb.id}", EvaluatedValue.ObjectVal(className),
                                 target.span, type = SemanticDataType.CLASS_INSTANCE, symbolId = tb.id)
                         } else classLeaf(target.span)

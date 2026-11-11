@@ -113,12 +113,16 @@ class TreeViewerTest {
     }
 
     @Test
-    fun laHojaQueReutilizaUnValorApuntaAlNodoQueLoCalculo() {
+    fun elIdDelMainSeDerivaDondeSeUsaSinLineaPunteada() {
+        // `b` se declara en el main y se usa en `a = b + 5*2`: su rama `ID3 =` cuelga de ese `+`, no de la raíz.
         val tree = semanticTree(reuse)
-        val leaf = tree.nodes.first { it.referencedIndex >= 0 }
-        val referenced = tree[leaf.referencedIndex]
-        assertNotNull(referenced.step)
-        assertTrue(leaf.details.any { it.label == "Reutiliza" })
+        assertTrue(tree.nodes.none { it.referencedIndex >= 0 }, "Ningún nodo se enlaza con línea punteada")
+        assertTrue(tree.nodes.none { n -> n.details.any { it.label == "Reutiliza" } })
+        val root = tree[0]
+        assertEquals(listOf("SOUT"), root.children.map { tree[it].title })
+        val b = tree.nodes.single { it.lines == listOf("ID3", "=") }
+        assertEquals("+", tree[b.parent].title)
+        assertNotNull(b.step)
     }
 
     @Test

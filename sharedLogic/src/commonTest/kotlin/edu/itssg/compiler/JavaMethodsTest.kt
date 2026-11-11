@@ -51,11 +51,13 @@ class JavaMethodsTest {
             System.out.println(nombre + doble + peso);}}
             """
         )
+        // `sc` se deriva en cada uso (como cualquier ID del main): su asignación va antes de cada lectura.
         assertEquals("1. (ID3, =, new Scanner(), Scanner)", q[0])
-        assertEquals("2. ([1], ., nextLine(), x)", q[1])
-        assertEquals("4. ([1], ., nextInt(), y)", q[3])
-        assertEquals("6. ([1], ., nextDouble(), z)", q[5])
-        assertTrue(q.contains("9. ([8], +, 30, 2y+30)"), q.toString())
+        assertEquals("2. ([1], ., nextInt(), y)", q[1])
+        assertTrue(q.contains("6. ([4], ., nextLine(), x)"), q.toString())
+        assertTrue(q.contains("11. ([8], ., nextDouble(), z)"), q.toString())
+        assertEquals(3, q.count { it.endsWith("(ID3, =, new Scanner(), Scanner)") }, q.toString())
+        assertTrue(q.contains("7. ([5], +, 30, 2y+30)"), q.toString())
         // String desconocido + número: el resultado también es desconocido y toma la siguiente letra.
         assertTrue(q.any { it.endsWith(", a)") }, q.toString())
     }
@@ -75,8 +77,8 @@ class JavaMethodsTest {
         val q = r.intermediateCode.quadruples.map { it.formatAcademic() }
         assertEquals("1. (new Scanner, ., nextLine(), x)", q[0])
         // La misma expresión usa la misma letra y se reduce como subexpresión común: RS[1].
-        assertEquals("3. (new Scanner, ., nextLine(), x)", q[2])
-        val rs = r.optimizationResult.optimizationTable.first { it.stepNumber == 3 }
+        assertEquals("2. (new Scanner, ., nextLine(), x)", q[1])
+        val rs = r.optimizationResult.optimizationTable.first { it.stepNumber == 2 }
         assertEquals("RS[1]", rs.displayCode)
     }
 
@@ -96,12 +98,14 @@ class JavaMethodsTest {
             System.out.println(c + n + t + e + i + m);}}
             """
         )
-        assertEquals("2. ([1], ., charAt(0), 'H')", q[1])
-        assertEquals("4. ([1], ., length(), 10)", q[3])
-        assertEquals("6. ([1], ., substring(0,4), \"Hola\")", q[5])
-        assertEquals("8. ([1], ., equals(\"Hola\"), false)", q[7])
-        assertEquals("10. ([1], ., indexOf(\"M\"), 5)", q[9])
-        assertEquals("12. ([1], ., toUpperCase(), \"HOLA MUNDO\")", q[11])
+        // Cada uso de `s` deriva su asignación; el método se aplica sobre ese renglón.
+        assertEquals("1. (ID3, =, \"Hola Mundo\", \"Hola Mundo\")", q[0])
+        assertTrue(q.contains("3. ([1], ., charAt(0), 'H')"), q.toString())
+        assertTrue(q.contains("4. ([2], ., length(), 10)"), q.toString())
+        assertTrue(q.contains("8. ([5], ., substring(0,4), \"Hola\")"), q.toString())
+        assertTrue(q.contains("12. ([9], ., equals(\"Hola\"), false)"), q.toString())
+        assertTrue(q.contains("16. ([13], ., indexOf(\"M\"), 5)"), q.toString())
+        assertTrue(q.contains("20. ([17], ., toUpperCase(), \"HOLA MUNDO\")"), q.toString())
     }
 
     @Test
@@ -117,8 +121,8 @@ class JavaMethodsTest {
             """
         )
         // El argumento i+1 se calcula antes, en su propio renglón.
-        assertEquals("3. ([2], +, 1, 3)", q[2])
-        assertEquals("4. ([1], ., charAt([3]), 'g')", q[3])
+        assertEquals("2. ([1], +, 1, 3)", q[1])
+        assertEquals("4. ([3], ., charAt([2]), 'g')", q[3])
     }
 
     @Test
@@ -157,14 +161,14 @@ class JavaMethodsTest {
         // La llamada anidada se calcula antes y se referencia: parseInt([2]).
         assertEquals("2. ([1], ., nextLine(), x)", q[1])
         assertEquals("3. (Integer, ., parseInt([2]), y)", q[2])
-        assertTrue(q.contains("5. (Math, ., pow(2,3), 8.0)"), q.toString())
+        assertTrue(q.contains("4. (Math, ., pow(2,3), 8.0)"), q.toString())
         assertTrue(q.contains("7. (Math, ., abs(-5), 5)"), q.toString())
-        assertTrue(q.contains("9. (Integer, ., parseInt(\"42\"), 42)"), q.toString())
-        assertTrue(q.contains("11. (Double, ., parseDouble(\"2.5\"), 2.5)"), q.toString())
-        assertTrue(q.contains("13. (String, ., valueOf(25), \"25\")"), q.toString())
+        assertTrue(q.contains("10. (Integer, ., parseInt(\"42\"), 42)"), q.toString())
+        assertTrue(q.contains("13. (Double, ., parseDouble(\"2.5\"), 2.5)"), q.toString())
+        assertTrue(q.contains("16. (String, ., valueOf(25), \"25\")"), q.toString())
         // Todas las llamadas a Math.random() son la misma letra.
-        assertTrue(q.contains("15. (Math, ., random(), z)"), q.toString())
         assertTrue(q.contains("17. (Math, ., random(), z)"), q.toString())
+        assertTrue(q.contains("20. (Math, ., random(), z)"), q.toString())
         assertTrue(q.any { it.contains("3z+5.0") }, q.toString())
     }
 

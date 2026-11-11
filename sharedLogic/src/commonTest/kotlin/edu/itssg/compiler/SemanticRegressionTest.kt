@@ -4,6 +4,7 @@ import edu.itssg.compiler.core.CompilationReport
 import edu.itssg.compiler.core.JavaDidacticCompiler
 import edu.itssg.compiler.core.error.CompilerNoteKind
 import edu.itssg.compiler.core.error.ErrorPhaseType
+import edu.itssg.compiler.core.semantic.SemanticAstNode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -292,10 +293,12 @@ class SemanticRegressionTest {
         assertEquals(
             listOf(
                 "1. (ID3, =, 5, 5)",
-                "2. (1, +, [1], 6)",
-                "3. (ID4, =, [1], 5)",
-                "4. (PMAIN, SOUT, [3], 5)",
-                "5. (PMAIN, SOUT, [2], 6)"
+                "2. (ID4, =, [1], 5)",
+                "3. (PMAIN, SOUT, [2], 5)",
+                // El paso de x++ se deriva donde se usa x (cada uso repite su asignación).
+                "4. (ID3, =, 5, 5)",
+                "5. (1, +, [4], 6)",
+                "6. (PMAIN, SOUT, [5], 6)"
             ),
             quads(r)
         )
@@ -310,7 +313,9 @@ class SemanticRegressionTest {
                 "2. (1, +, [1], 6)",
                 "3. (ID4, =, [2], 6)",
                 "4. (PMAIN, SOUT, [3], 6)",
-                "5. (PMAIN, SOUT, [2], 6)"
+                "5. (ID3, =, 5, 5)",
+                "6. (1, +, [5], 6)",
+                "7. (PMAIN, SOUT, [6], 6)"
             ),
             quads(r)
         )
@@ -326,7 +331,7 @@ class SemanticRegressionTest {
     @Test
     fun incrementoLeidoEnLaMismaExpresionNoApuntaHaciaAdelante() {
         val r = compileMain("int x = 5;\nint y = x++ + x;\nSystem.out.println(y);")
-        assertEquals("5. (PMAIN, SOUT, [4], 11)", quads(r).last())
+        assertEquals("6. (PMAIN, SOUT, [5], 11)", quads(r).last())
         quads(r).forEachIndexed { i, q ->
             Regex("\\[(\\d+)]").findAll(q).forEach { ref ->
                 assertTrue(ref.groupValues[1].toInt() <= i, "Referencia hacia adelante en $q")
@@ -357,5 +362,134 @@ class SemanticRegressionTest {
         assertEquals(ErrorPhaseType.LEXICAL, r.errors.single().type)
         assertTrue(r.errors.single().justification.contains("carácter nulo"))
         assertTrue(r.intermediateCode.quadruples.isEmpty())
+    }
+
+    // ------------------------------------------------------------------ 10 nov 2026: IDs del main derivados en su uso
+
+    private fun allNodes(root: SemanticAstNode): List<SemanticAstNode> {
+        val out = ArrayList<SemanticAstNode>()
+        val stack = ArrayDeque<SemanticAstNode>()
+        stack.addLast(root)
+        while (stack.isNotEmpty()) {
+            val n = stack.removeLast()
+            out += n
+            for (c in n.children.asReversed()) stack.addLast(c)
+        }
+        return out
+    }
+
+    private fun label(n: SemanticAstNode) = listOfNotNull(n.primaryLabel, n.secondaryLabel).joinToString(" ")
+
+    /** Ningún nodo reutiliza a otro (línea punteada), los ids no se repiten y ningún renglón apunta hacia adelante. */
+    private fun assertTreeWithoutLinks(r: CompilationReport) {
+        val nodes = allNodes(r.semanticTree)
+        assertTrue(nodes.none { it.referencedNodeId != null }, "Hay nodos enlazados con línea punteada")
+        assertEquals(nodes.size, nodes.map { it.id }.toSet().size, "Hay ids de nodo repetidos")
+        quads(r).forEachIndexed { i, q ->
+            Regex("\\[(\\d+)]").findAll(q).forEach { ref ->
+                assertTrue(ref.groupValues[1].toInt() <= i, "Referencia hacia adelante en $q")
+            }
+        }
+    }
+
+    @Test
+    fun idDelMainSeDerivaDondeSeUsaEjemploViernes() {
+        // U1, ejemplo Viernes: `num` se declara en el main y se usa como argumento de a(num, ...).
+        val r = JavaDidacticCompiler().compileSynchronously(
+            """
+            package asesorias;
+            public class Viernes{
+            public double a (int x, String y){
+            int variable = (int)(Math.random()*2);
+            return x*variable+variable/3;}
+            public static void main(String [] a){
+            int num = '@'/10;
+            System.out.println(new Viernes().a(num, "URIANGATO"));}}
+            """.trimIndent()
+        )
+        assertTrue(r.errors.isEmpty(), "Sin errores: ${r.errors}")
+        assertTreeWithoutLinks(r)
+        // De la raíz solo cuelga el SOUT: `ID8 =` ya no es una rama aparte del main.
+        assertEquals(listOf("SOUT PMAIN"), r.semanticTree.children.map(::label))
+        // `ID8 =` (num) cuelga del parámetro `ID4 =` (x), que es donde se usa.
+        val x = allNodes(r.semanticTree).single { label(it) == "ID4 =" }
+        assertEquals(listOf("ID8 ="), x.children.map(::label))
+        assertEquals(listOf("/"), x.children.single().children.map(::label))
+        val q = quads(r)
+        assertEquals("1. ('@', /, 10, 6)", q[0])
+        assertTrue(q.contains("4. (ID8, =, [1], 6)"), q.toString())
+        assertTrue(q.contains("7. (ID4, =, [4], 6)"), q.toString())
+        assertEquals("15. (PMAIN, SOUT, [14], 12.6667x)", q.last())
+    }
+
+    @Test
+    fun idDelMainUsadoVariasVecesRepiteSuAsignacion() {
+        val r = compileMain("int x = 2 + 3;\nSystem.out.println(x * x);")
+        assertTreeWithoutLinks(r)
+        assertEquals(listOf("SOUT PMAIN"), r.semanticTree.children.map(::label))
+        assertEquals(
+            listOf(
+                "1. (2, +, 3, 5)",
+                "2. (2, +, 3, 5)",
+                "3. (ID3, =, [1], 5)",
+                "4. (ID3, =, [2], 5)",
+                "5. ([3], *, [4], 25)",
+                "6. (PMAIN, SOUT, [5], 25)"
+            ),
+            quads(r)
+        )
+        // La repetición se reduce como subexpresión común y el resultado final es una constante.
+        assertEquals(
+            listOf("1. (PMAIN, SOUT, 25, 25)"),
+            r.optimizationResult.optimizedBundle.quadruples.map { it.formatAcademic() }
+        )
+    }
+
+    @Test
+    fun idDelMainQueNadieUsaSigueColgandoDeLaRaiz() {
+        val r = compileMain("int muerto = 99;\nint x = 1;\nx = 7;\nSystem.out.println(x);")
+        assertTreeWithoutLinks(r)
+        // `muerto` y el primer valor de x no se usan: son ramas propias del main (y código muerto).
+        assertEquals(listOf("ID3 =", "ID4 =", "SOUT PMAIN"), r.semanticTree.children.map(::label))
+        assertEquals(
+            listOf("1. (ID3, =, 99, 99)", "2. (ID4, =, 1, 1)", "3. (ID4, =, 7, 7)", "4. (PMAIN, SOUT, [3], 7)"),
+            quads(r)
+        )
+    }
+
+    @Test
+    fun cadaUsoTomaElValorVigenteDelIdDelMain() {
+        val r = compileMain("int x = 1;\nSystem.out.println(x);\nx = x + 2;\nint y = x++;\nSystem.out.println(x + y);")
+        assertTrue(r.errors.isEmpty(), "Sin errores: ${r.errors}")
+        assertTreeWithoutLinks(r)
+        assertEquals(listOf("SOUT PMAIN", "SOUT PMAIN"), r.semanticTree.children.map(::label))
+        val prints = quads(r).filter { "SOUT" in it }.map { it.substringAfterLast(", ").removeSuffix(")") }
+        assertEquals(listOf("1", "7"), prints) // x = 4, y = 3
+    }
+
+    @Test
+    fun objetoDelMainSeDerivaDondeSeUsa() {
+        val r = compileMain("P obj = new P();\nSystem.out.println(obj.m(4));", members = "public int m(int p){ return p*2; }")
+        assertTrue(r.errors.isEmpty(), "Sin errores: ${r.errors}")
+        assertTreeWithoutLinks(r)
+        assertEquals(listOf("SOUT PMAIN"), r.semanticTree.children.map(::label))
+        val q = quads(r)
+        assertTrue(q.contains("3. (ID5, =, new ID1(), P)"), q.toString())
+        assertTrue(q.contains("5. ([3], ., [4], 8)"), q.toString())
+        assertEquals("8", q.last().substringAfterLast(", ").removeSuffix(")"))
+    }
+
+    @Test
+    fun derivarIdsDelMainNoDesbordaElArbol() {
+        // Cada variable usa dos veces la anterior: el árbol se duplica en cada renglón y lo detiene el límite de nodos.
+        val doubling = (1..40).joinToString("\n") { "int v$it = v${it - 1} + v${it - 1};" }
+        val r = compileMain("int v0 = 1;\n$doubling\nSystem.out.println(v40);")
+        assertTrue(semanticErrors(r).any { "20" in it }, "Se esperaba el aviso del límite de nodos: ${r.errors}")
+        // Una cadena larga de reasignaciones no repite nada: cada definición se usa una sola vez.
+        val chain = (1..3000).joinToString("\n") { "x = x + 1;" }
+        val long = compileMain("int x = 0;\n$chain\nSystem.out.println(x);")
+        assertTrue(long.errors.isEmpty(), "Sin errores: ${long.errors}")
+        assertEquals(listOf("SOUT PMAIN"), long.semanticTree.children.map(::label))
+        assertEquals("3000", quads(long).last().substringAfterLast(", ").removeSuffix(")"))
     }
 }
